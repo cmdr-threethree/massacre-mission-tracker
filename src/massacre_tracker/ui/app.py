@@ -10,6 +10,7 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.coordinate import Coordinate
 from textual.filter import Monochrome
 from textual.message import Message
 from textual.widgets import (
@@ -212,6 +213,8 @@ class TrackerApp(App[None]):
         self._auto_pick_pending = config.commander_filter is None
         self._known_session_paths: set[Path] | None = None
         self._idle_refresh_ticks = 0
+        self._mission_table_context: tuple[object, ...] | None = None
+        self._mission_row_cache: dict[int, tuple[object, ...]] = {}
         self._pending_delete: tuple[str, int] | None = None
         self._pending_clear_key: str | None = None
         self._copy_mission_id: int | None = None
@@ -596,8 +599,11 @@ class TrackerApp(App[None]):
         missions: list[Mission] | None = None,
     ) -> None:
         table = self.query_one("#missions", DataTable)
-        table.clear()
         if view is None:
+            if table.row_count:
+                table.clear()
+            self._mission_table_context = None
+            self._mission_row_cache.clear()
             self.selected_mission_id = None
             return
 
@@ -607,28 +613,38 @@ class TrackerApp(App[None]):
         if self.selected_mission_id not in visible_ids:
             self.selected_mission_id = missions[0].mission_id if missions else None
 
+        context: tuple[object, ...] = (
+            view.key,
+            self.view_mode,
+            self.sort_field,
+            self.sort_ascending,
+            tuple(sorted(view.station_names)),
+            tuple(mission.mission_id for mission in missions),
+        )
+        cache_complete = all(
+            mission.mission_id in self._mission_row_cache
+            for mission in missions
+        )
+        if (
+            context == self._mission_table_context
+            and table.row_count == len(missions)
+            and cache_complete
+        ):
+            self._update_mission_rows(table, missions, view)
+            return
+
+        table.clear()
+        self._mission_row_cache.clear()
         for mission in missions:
             ready = is_ready(mission, view.station_names)
-            row_style = "bold bright_green" if ready else ""
-            wing_text = Text("WING", style="bold yellow") if mission.wing else Text("—")
-            state_text = Text(
-                mission.state.value,
-                style=state_color(mission.state),
-                no_wrap=True,
-                overflow="ellipsis",
+            table.add_row(
+                *self._mission_cells(mission, ready),
+                key=str(mission.mission_id),
             )
-            cells = [
-                self._cell(mission.source_system or "—", row_style),
-                self._cell(mission.source_station or "—", row_style),
-                self._cell(mission.issuing_faction or "—", row_style),
-                self._cell(mission.target_faction or "—", row_style),
-                self._cell(mission_kills(mission), row_style),
-                self._cell(format_credits(mission.reward), row_style),
-                self._cell(format_expiry(mission.expires_at), row_style),
-                wing_text,
-                state_text,
-            ]
-            table.add_row(*cells, key=str(mission.mission_id))
+            self._mission_row_cache[mission.mission_id] = (
+                self._mission_row_values(mission, ready)
+            )
+        self._mission_table_context = context
 
         if self.selected_mission_id is not None and missions:
             try:
@@ -636,6 +652,80 @@ class TrackerApp(App[None]):
                 table.move_cursor(row=index)
             except Exception:
                 pass
+
+    def _update_mission_rows(
+        self,
+        table: DataTable,
+        missions: list[Mission],
+        view: CommanderView,
+    ) -> None:
+        """Update only cells whose displayed value changed."""
+
+        for row_index, mission in enumerate(missions):
+            ready = is_ready(mission, view.station_names)
+            new_values = self._mission_row_values(mission, ready)
+            old_values = self._mission_row_cache.get(mission.mission_id)
+            if new_values == old_values:
+                continue
+            if old_values is None:
+                # The cache is unexpectedly incomplete; rebuild safely.
+                self._mission_table_context = None
+                self._refresh_missions_table(view, missions)
+                return
+            cells = self._mission_cells(mission, ready)
+            if old_values[-1] != new_values[-1]:
+                changed_columns = range(9)
+            else:
+                changed_columns = [
+                    index
+                    for index in range(9)
+                    if old_values[index] != new_values[index]
+                ]
+            for column_index in changed_columns:
+                table.update_cell_at(
+                    Coordinate(row_index, column_index),
+                    cells[column_index],
+                )
+            self._mission_row_cache[mission.mission_id] = new_values
+
+    @staticmethod
+    def _mission_row_values(
+        mission: Mission,
+        ready: bool,
+    ) -> tuple[object, ...]:
+        return (
+            mission.source_system or "—",
+            mission.source_station or "—",
+            mission.issuing_faction or "—",
+            mission.target_faction or "—",
+            mission_kills(mission),
+            format_credits(mission.reward),
+            format_expiry(mission.expires_at),
+            "WING" if mission.wing else "—",
+            mission.state.value,
+            ready,
+        )
+
+    def _mission_cells(self, mission: Mission, ready: bool) -> list[Text]:
+        row_style = "bold bright_green" if ready else ""
+        wing_text = Text("WING", style="bold yellow") if mission.wing else Text("—")
+        state_text = Text(
+            mission.state.value,
+            style=state_color(mission.state),
+            no_wrap=True,
+            overflow="ellipsis",
+        )
+        return [
+            self._cell(mission.source_system or "—", row_style),
+            self._cell(mission.source_station or "—", row_style),
+            self._cell(mission.issuing_faction or "—", row_style),
+            self._cell(mission.target_faction or "—", row_style),
+            self._cell(mission_kills(mission), row_style),
+            self._cell(format_credits(mission.reward), row_style),
+            self._cell(format_expiry(mission.expires_at), row_style),
+            wing_text,
+            state_text,
+        ]
 
     @staticmethod
     def _cell(value: str, style: str = "") -> Text:

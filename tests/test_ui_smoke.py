@@ -241,6 +241,28 @@ def test_live_append_updates_ui(tmp_path: Path):
     asyncio.run(scenario())
 
 
+def test_mission_row_updates_without_rebuilding_table(tmp_path: Path):
+    single_commander_journal(tmp_path)
+
+    async def scenario() -> None:
+        app = TrackerApp(Config(journal_dir=tmp_path))
+        async with app.run_test(size=(100, 30)) as pilot:
+            await wait_for_scan(app, pilot)
+            table = app.query_one("#missions")
+            assert table.get_row("1")[4].plain == "0 / 3"
+
+            app.engine.adjust_mission("F100", 1, 1)
+            with patch.object(table, "clear", wraps=table.clear) as clear_table:
+                app._refresh_ui()
+                clear_table.assert_not_called()
+
+            assert table.get_row("1")[4].plain == "1 / 3"
+            app.action_quit()
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+
 def test_status_mission_count_and_wide_state_column(tmp_path: Path):
     path = journal_path(tmp_path, BASE_TIME, 1)
     write_journal(
