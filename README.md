@@ -265,7 +265,8 @@ The specification leaves a few details open. This implementation chooses:
 
 ## Diagnostics and troubleshooting
 
-The status area shows the watch count, active sessions, commander count, scan
+The status area shows the number of missions in the current view after filtering
+and sorting, plus the watch count, active sessions, commander count, scan
 progress, last poll time, processed event count, and malformed-line count. The
 Sessions tab lists every file, its commander, current station/system, last event
 age, and Live/Legacy/Unknown and Active/Idle state. The configured journal path

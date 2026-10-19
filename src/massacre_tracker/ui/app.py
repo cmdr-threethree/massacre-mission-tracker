@@ -188,6 +188,7 @@ class TrackerApp(App[None]):
 
         self.current_key: str | None = None
         self.selected_mission_id: int | None = None
+        self.visible_mission_count = 0
         self.view_mode = VIEW_ACTIVE
         self.sort_field = "default"
         self.sort_ascending = True
@@ -381,7 +382,9 @@ class TrackerApp(App[None]):
     # ------------------------------------------------------------------
 
     def _init_tables(self) -> None:
-        self.query_one("#missions", DataTable).add_columns(*MISSION_COLUMNS)
+        mission_table = self.query_one("#missions", DataTable)
+        mission_table.add_columns(*MISSION_COLUMNS[:-1])
+        mission_table.add_column(MISSION_COLUMNS[-1], width=14)
         self.query_one("#stacks-table", DataTable).add_columns(*STACK_COLUMNS)
         self.query_one("#targets-table", DataTable).add_columns(*TARGET_COLUMNS)
         self.query_one("#bounties-table", DataTable).add_columns(*BOUNTY_COLUMNS)
@@ -407,21 +410,25 @@ class TrackerApp(App[None]):
 
         self._sync_commander_select(keys)
         self._sync_view_select()
-        self._update_status_text(stats)
-        self._update_sort_label()
 
         view = (
             self.engine.commander_view(self.current_key)
             if self.current_key is not None
             else None
         )
-        self._refresh_missions_table(view)
+        visible_missions = self._visible_missions(view) if view is not None else []
+        self.visible_mission_count = len(visible_missions)
+
+        self._update_status_text(stats)
+        self._update_sort_label()
+
+        self._refresh_missions_table(view, visible_missions)
         self._refresh_stacks(view)
         self._refresh_targets(view)
         self._refresh_bounties(view)
         self._refresh_sessions()
         self._refresh_clipboard()
-        self._refresh_empty_message(view)
+        self._refresh_empty_message(view, visible_missions)
 
     def _detect_new_sessions(self, sessions: tuple[SessionInfo, ...]) -> None:
         paths = {session.path for session in sessions}
@@ -519,7 +526,8 @@ class TrackerApp(App[None]):
             )
 
         status = (
-            f"Scan: {scan_text}  |  files {stats.watched_files}"
+            f"Scan: {scan_text}  |  missions {self.visible_mission_count}"
+            f"  |  files {stats.watched_files}"
             f"  |  sessions {stats.active_sessions}"
             f"  |  cmdrs {stats.commanders}"
             f"  |  poll {format_local_time(stats.last_poll)}"
@@ -564,14 +572,19 @@ class TrackerApp(App[None]):
             ]
         return self._sort_missions(missions)
 
-    def _refresh_missions_table(self, view: CommanderView | None) -> None:
+    def _refresh_missions_table(
+        self,
+        view: CommanderView | None,
+        missions: list[Mission] | None = None,
+    ) -> None:
         table = self.query_one("#missions", DataTable)
         table.clear()
         if view is None:
             self.selected_mission_id = None
             return
 
-        missions = self._visible_missions(view)
+        if missions is None:
+            missions = self._visible_missions(view)
         visible_ids = {mission.mission_id for mission in missions}
         if self.selected_mission_id not in visible_ids:
             self.selected_mission_id = missions[0].mission_id if missions else None
@@ -583,6 +596,8 @@ class TrackerApp(App[None]):
             state_text = Text(
                 mission.state.value,
                 style=state_color(mission.state),
+                no_wrap=True,
+                overflow="ellipsis",
             )
             cells = [
                 self._cell(mission.source_system or "—", row_style),
@@ -754,7 +769,11 @@ class TrackerApp(App[None]):
             self.clipboard_store.render()
         )
 
-    def _refresh_empty_message(self, view: CommanderView | None) -> None:
+    def _refresh_empty_message(
+        self,
+        view: CommanderView | None,
+        visible_missions: list[Mission] | None = None,
+    ) -> None:
         widget = self.query_one("#empty-message", Static)
         if view is None:
             if not self.engine.all_session_infos():
@@ -768,7 +787,11 @@ class TrackerApp(App[None]):
                     "MissionAccepted events."
                 )
         else:
-            visible = self._visible_missions(view)
+            visible = (
+                visible_missions
+                if visible_missions is not None
+                else self._visible_missions(view)
+            )
             if visible:
                 widget.add_class("hidden")
                 return

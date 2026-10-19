@@ -16,6 +16,7 @@ from tests.builders import (
     fileheader,
     journal_path,
     mission_accepted,
+    mission_event,
     write_journal,
 )
 
@@ -227,6 +228,45 @@ def test_live_append_updates_ui(tmp_path: Path):
                 if app.query_one("#missions").row_count == 1:
                     break
             assert app.query_one("#missions").row_count == 1
+            app.action_quit()
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+
+def test_status_mission_count_and_wide_state_column(tmp_path: Path):
+    path = journal_path(tmp_path, BASE_TIME, 1)
+    write_journal(
+        path,
+        [
+            fileheader(),
+            commander(),
+            docked(),
+            mission_accepted(1),
+            mission_accepted(2),
+            mission_event("MissionCompleted", 2, Reward=2000),
+        ],
+    )
+
+    async def scenario() -> None:
+        app = TrackerApp(Config(journal_dir=tmp_path))
+        async with app.run_test(size=(100, 30)) as pilot:
+            await wait_for_scan(app, pilot)
+            table = app.query_one("#missions")
+            assert table.row_count == 1
+            assert app.visible_mission_count == 1
+            assert "missions 1" in str(app.query_one("#status-line").content)
+            assert table.ordered_columns[-1].width >= 14
+
+            app.action_cycle_view()
+            await pilot.pause()
+            assert table.row_count == 1
+            assert app.visible_mission_count == 1
+            assert "missions 1" in str(app.query_one("#status-line").content)
+
+            app.action_cycle_view()
+            await pilot.pause()
+            assert app.visible_mission_count == 1
             app.action_quit()
             await pilot.pause()
 
