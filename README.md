@@ -347,3 +347,11 @@ tests/             unit, integration, UI smoke, and acceptance tests
 
 This project is released into the public domain under the Unlicense. See
 [`LICENSE`](LICENSE).
+
+---
+
+## Screenshots
+
+![Massacre Mission Tracker screenshot 1](01.svg)
+
+![Massacre Mission Tracker screenshot 2](02.svg)
