@@ -355,3 +355,5 @@ This project is released into the public domain under the Unlicense. See
 ![Massacre Mission Tracker screenshot 1](01.svg)
 
 ![Massacre Mission Tracker screenshot 2](02.svg)
+
+![Massacre Mission Tracker screenshot 3](03.svg)
