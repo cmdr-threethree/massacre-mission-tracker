@@ -498,8 +498,7 @@ class TrackerApp(App[None]):
             f"  |  events {stats.events_processed:,}"
             f"  |  malformed {stats.malformed_lines}"
         )
-        path_line = f"Journal directory: {self.config.journal_dir}"
-        self.query_one("#status-line", Static).update(path_line + "\n" + status)
+        self.query_one("#status-line", Static).update(status)
 
         warning_parts: list[str] = []
         if self.scan_error:

@@ -8,14 +8,14 @@ Header {
 }
 
 #status-bar {
-    height: 3;
+    height: 2;
     padding: 0 1;
     background: $panel;
     border-bottom: solid $primary-darken-2;
 }
 
 #status-line {
-    height: 2;
+    height: 1;
     color: $text-muted;
     overflow: hidden;
     text-overflow: ellipsis;

@@ -84,6 +84,7 @@ def test_populated_ui_and_keyboard_actions(tmp_path: Path):
             assert app._commander_options_sig == (("Jameson", "F100"),)
             session = app.engine.all_session_infos()[0]
             assert TrackerApp._session_commander_label(session) == "Jameson"
+            assert str(tmp_path) not in str(app.query_one("#status-line").content)
             table = app.query_one("#missions")
             assert table.row_count == 1
             assert app.selected_mission_id == 1

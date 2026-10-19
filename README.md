@@ -258,10 +258,12 @@ The specification leaves a few details open. This implementation chooses:
 
 ## Diagnostics and troubleshooting
 
-The status area shows the journal directory, watch count, active sessions,
-commander count, scan progress, last poll time, processed event count, and
-malformed-line count. The Sessions tab lists every file, its commander, current
-station/system, last event age, and Live/Legacy/Unknown and Active/Idle state.
+The status area shows the watch count, active sessions, commander count, scan
+progress, last poll time, processed event count, and malformed-line count. The
+Sessions tab lists every file, its commander, current station/system, last event
+age, and Live/Legacy/Unknown and Active/Idle state. The configured journal path
+is not shown in the main view; it appears only on the startup error screen if
+the directory cannot be used.
 
 Common situations:
 
