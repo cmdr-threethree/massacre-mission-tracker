@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 from massacre_tracker.journal.reader import (
     iter_file_chunks,
@@ -63,3 +64,16 @@ def test_read_appended_and_truncation(tmp_path: Path):
     data, truncated = read_appended(path, 5)
     assert data == b"abc"
     assert truncated
+
+
+def test_read_appended_accepts_size_without_extra_stat(tmp_path: Path):
+    path = tmp_path / "journal.log"
+    path.write_bytes(b"abcdef")
+    with patch.object(
+        Path,
+        "stat",
+        side_effect=AssertionError("unexpected stat"),
+    ):
+        data, truncated = read_appended(path, 2, size=6)
+    assert data == b"cdef"
+    assert not truncated

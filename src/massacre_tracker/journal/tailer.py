@@ -55,7 +55,10 @@ class JournalTailer:
             current = current.replace(tzinfo=timezone.utc)
 
         try:
-            discovery = discover_journal_files(self.config.journal_dir)
+            discovery = discover_journal_files(
+                self.config.journal_dir,
+                parse_filename_timestamps=False,
+            )
         except JournalDirectoryError as exc:
             self.engine.add_warning(str(exc))
             self.engine.set_last_poll(current)
@@ -134,7 +137,11 @@ class JournalTailer:
         now: datetime,
     ) -> tuple[list[EventEnvelope], int, bool]:
         try:
-            data, truncated = read_appended(discovered.path, session.offset)
+            data, truncated = read_appended(
+                discovered.path,
+                session.offset,
+                discovered.size,
+            )
         except OSError as exc:
             if not session.missing:
                 self.engine.add_warning(

@@ -72,14 +72,22 @@ def iter_file_chunks(
             )
 
 
-def read_appended(path: Path, offset: int) -> tuple[bytes, bool]:
+def read_appended(
+    path: Path,
+    offset: int,
+    size: int | None = None,
+) -> tuple[bytes, bool]:
     """Read bytes after ``offset``.
 
     Returns ``(data, truncated)``. When the file is smaller than the offset,
     the returned data starts at byte zero and ``truncated`` is True.
+
+    ``size`` may be supplied from a recent directory scan to avoid an extra
+    ``stat`` call per poll.
     """
 
-    size = path.stat().st_size
+    if size is None:
+        size = path.stat().st_size
     if size < offset:
         with path.open("rb") as handle:
             return handle.read(), True

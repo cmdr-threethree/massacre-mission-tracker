@@ -73,3 +73,11 @@ def test_invalid_filename_can_still_be_in_window_by_mtime(tmp_path: Path):
     assert len(result.files) == 1
     assert result.files[0].filename_timestamp is None
     assert file_in_window(result.files[0], BASE_TIME - timedelta(days=8))
+
+
+def test_tailer_discovery_can_skip_filename_timestamp_parsing(tmp_path: Path):
+    path = journal_path(tmp_path)
+    path.write_text("{}\n")
+    result = discover_journal_files(tmp_path, parse_filename_timestamps=False)
+    assert len(result.files) == 1
+    assert result.files[0].filename_timestamp is None
