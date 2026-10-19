@@ -171,7 +171,7 @@ start a UI.
 3. Implement `Config`:
    - `journal_dir: Path`
    - `days: int = 8`
-   - `poll_interval: float = 1.0`
+   - `poll_interval: float = 2.0`
    - `commander: str | None = None`
    - `color: bool = True`
 4. Implement `cli.py` with:
@@ -559,7 +559,7 @@ applied twice.
    - Unreadable file: report, keep watching others.
    - Never let a single file stop the poll loop.
 6. Poll interval:
-   - Use `Config.poll_interval`; default 1.0 seconds, minimum enforced > 0.
+   - Use `Config.poll_interval`; default 2.0 seconds, minimum enforced > 0.
    - Sleep interruptibly so quitting is immediate.
 7. Thread lifecycle:
    - Start only after reconstruction completes.
@@ -888,7 +888,7 @@ python -m pytest
 python -m pytest tests/test_acceptance.py -v
 python -m pytest -k "not ui" -q
 massacre-tracker --help
-massacre-tracker --journal-dir /path/to/journals --days 8 --poll 1.0
+massacre-tracker --journal-dir /path/to/journals --days 8 --poll 2.0
 ```
 
 Optional manual smoke test:

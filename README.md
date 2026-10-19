@@ -94,7 +94,7 @@ required.
 |---|---|
 | `--journal-dir PATH` | Directory containing `Journal.*.log`. Falls back to `ED_JOURNAL_DIR`. |
 | `--days N` | Days of journals to reconstruct at startup. Default `8`. |
-| `--poll SECONDS` | Directory polling interval. Default `1.0`. |
+| `--poll SECONDS` | Directory polling interval. Default `2.0`. |
 | `--commander FID_OR_NAME` | Initially select a commander by FID or name (case-insensitive). |
 | `--no-color` | Install a monochrome output filter. |
 

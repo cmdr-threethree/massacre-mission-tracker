@@ -8,7 +8,7 @@ from math import isfinite
 from pathlib import Path
 
 DEFAULT_DAYS = 8
-DEFAULT_POLL_INTERVAL = 1.0
+DEFAULT_POLL_INTERVAL = 2.0
 
 
 class ConfigError(ValueError):

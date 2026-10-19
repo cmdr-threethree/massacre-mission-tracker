@@ -15,7 +15,7 @@ def test_defaults_and_commander_filter():
     )
     assert config.journal_dir == Path("/tmp/journals")
     assert config.days == DEFAULT_DAYS
-    assert config.poll_interval == 1.0
+    assert config.poll_interval == 2.0
     assert config.commander_filter == "Jameson"
     assert config.color is True
 
