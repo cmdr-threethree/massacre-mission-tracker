@@ -164,6 +164,10 @@ def test_two_commanders_and_session_panel(tmp_path: Path):
             assert app.query_one("#sessions-table").row_count == 2
             assert app.query_one("#status-line").size.height >= 2
             assert app.query_one("#view-select").size.height == 3
+            missions_height = app.query_one("#missions").size.height
+            details_height = app.query_one("#details").size.height
+            assert details_height >= missions_height
+            assert details_height - missions_height <= 1
             first = app.current_key
             app.query_one("#missions").focus()
             await pilot.press("ctrl+n")
