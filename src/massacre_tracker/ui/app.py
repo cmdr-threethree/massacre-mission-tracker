@@ -436,9 +436,7 @@ class TrackerApp(App[None]):
         for key in keys:
             view = self.engine.commander_view(key)
             if view is None:
-                options.append((key, key))
-            elif view.name and view.fid:
-                options.append((f"{view.name} ({view.fid})", key))
+                options.append(("Unknown commander", key))
             else:
                 options.append((view.display_name, key))
 
@@ -722,13 +720,7 @@ class TrackerApp(App[None]):
 
     @staticmethod
     def _session_commander_label(session: SessionInfo) -> str:
-        if session.commander_name and session.commander_fid:
-            return f"{session.commander_name} ({session.commander_fid})"
-        if session.commander_name:
-            return session.commander_name
-        if session.commander_fid:
-            return session.commander_fid
-        return "—"
+        return session.commander_name or "—"
 
     def _refresh_clipboard(self) -> None:
         self.query_one("#clipboard-text", Static).update(

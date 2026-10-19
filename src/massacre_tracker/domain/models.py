@@ -107,11 +107,7 @@ class CommanderTracker:
 
     @property
     def display_name(self) -> str:
-        if self.name:
-            return self.name
-        if self.fid:
-            return self.fid
-        return self.key
+        return self.name or "Unknown commander"
 
     def add_mission(self, mission: Mission) -> bool:
         """Add a mission, returning False when the ID already exists."""

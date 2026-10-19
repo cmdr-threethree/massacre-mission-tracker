@@ -302,6 +302,20 @@ def test_later_commander_in_same_session_keeps_old_commander_state():
     assert session.commander_fid == "F200"
 
 
+def test_commander_display_name_never_falls_back_to_fid():
+    engine = TrackerEngine()
+    path = Path("Journal.2026-10-19T120000.01.log")
+    events = [
+        envelope("Fileheader", {"gameversion": "4.0.0.100"}, path=path, line_number=0),
+        envelope("Commander", {"FID": "F100", "Name": ""}, path=path, line_number=1),
+    ]
+    engine.apply_batch(events)
+    view = engine.commander_view("F100")
+    assert view is not None
+    assert view.display_name == "Unknown commander"
+    assert view.display_name != "F100"
+
+
 def test_stats_and_warnings():
     engine = TrackerEngine()
     engine.note_malformed(3)

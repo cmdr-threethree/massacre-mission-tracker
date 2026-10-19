@@ -471,7 +471,7 @@ class TrackerEngine:
                 self.commanders,
                 key=lambda key: (
                     self.commanders[key].fid is None,
-                    self.commanders[key].display_name.casefold(),
+                    self._commander_display_name(self.commanders[key]).casefold(),
                     key,
                 ),
             )
@@ -553,11 +553,9 @@ class TrackerEngine:
     def _commander_display_name(self, tracker: CommanderTracker) -> str:
         if tracker.name:
             return tracker.name
-        if tracker.fid:
-            return tracker.fid
         if tracker.key.startswith(UNKNOWN_KEY_PREFIX):
             return f"Unknown ({tracker.key[len(UNKNOWN_KEY_PREFIX):]})"
-        return tracker.key
+        return "Unknown commander"
 
     # ------------------------------------------------------------------
     # UI actions
