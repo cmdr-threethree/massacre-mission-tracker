@@ -32,6 +32,9 @@ Navigation
   ?            Open this help
   q            Quit
 
+The commander from the newest journal is selected automatically. Manual
+commander selection takes precedence until another new journal appears.
+
 Views and colour legend
   Active view:    ACTIVE and REDIRECTED missions
   Completed view: COMPLETED, ABANDONED, and FAILED missions

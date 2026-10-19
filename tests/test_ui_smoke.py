@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from massacre_tracker.config import Config
@@ -22,6 +24,11 @@ async def wait_for_scan(app: TrackerApp, pilot, timeout: float = 3.0) -> None:
     await asyncio.to_thread(app._scan_finished_event.wait, timeout)
     for _ in range(8):
         await pilot.pause()
+
+
+def set_mtime(path: Path, dt: datetime) -> None:
+    seconds = dt.timestamp()
+    os.utime(path, (seconds, seconds))
 
 
 def single_commander_journal(directory: Path, *, fid: str = "F100", name: str = "Jameson") -> Path:
@@ -144,19 +151,59 @@ def test_two_commanders_and_session_panel(tmp_path: Path):
         path_b,
         [fileheader(), commander(fid="F200", name="B"), docked(station="Fisher", system="LHS 20"), mission_accepted(2)],
     )
+    set_mtime(path_a, BASE_TIME - timedelta(minutes=5))
+    set_mtime(path_b, BASE_TIME)
 
     async def scenario() -> None:
         app = TrackerApp(Config(journal_dir=tmp_path))
         async with app.run_test(size=(80, 24)) as pilot:
             await wait_for_scan(app, pilot)
             assert set(app.engine.commander_keys()) == {"F100", "F200"}
-            assert app.current_key == "F100"
+            assert app.current_key == "F200"
             assert app.query_one("#sessions-table").row_count == 2
             first = app.current_key
             app.query_one("#missions").focus()
             await pilot.press("ctrl+n")
             await pilot.pause()
             assert app.current_key != first
+            app.action_quit()
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+
+def test_new_journal_switches_to_its_commander(tmp_path: Path):
+    existing = journal_path(tmp_path, BASE_TIME, 1)
+    write_journal(
+        existing,
+        [fileheader(), commander(fid="F100", name="A"), docked(), mission_accepted(1)],
+    )
+    set_mtime(existing, BASE_TIME - timedelta(minutes=5))
+
+    async def scenario() -> None:
+        app = TrackerApp(Config(journal_dir=tmp_path, poll_interval=0.1))
+        async with app.run_test(size=(100, 30)) as pilot:
+            await wait_for_scan(app, pilot)
+            assert app.current_key == "F100"
+
+            new_time = BASE_TIME + timedelta(minutes=5)
+            new_path = journal_path(tmp_path, new_time, 2)
+            write_journal(
+                new_path,
+                [
+                    fileheader(new_time),
+                    commander(fid="F200", name="B", timestamp=new_time),
+                    docked(timestamp=new_time),
+                ],
+            )
+            set_mtime(new_path, new_time)
+
+            for _ in range(40):
+                await asyncio.sleep(0.1)
+                await pilot.pause()
+                if app.current_key == "F200":
+                    break
+            assert app.current_key == "F200"
             app.action_quit()
             await pilot.pause()
 

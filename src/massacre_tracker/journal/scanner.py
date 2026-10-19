@@ -78,6 +78,7 @@ class JournalScanner:
                 discovered.path,
                 offset=discovered.size,
                 first_seen=now,
+                mtime=discovered.mtime,
                 reset=True,
             )
             if file_in_window(discovered, cutoff):

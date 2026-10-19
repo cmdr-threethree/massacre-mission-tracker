@@ -77,10 +77,13 @@ class JournalTailer:
                     item.path,
                     offset=0,
                     first_seen=current,
+                    mtime=item.mtime,
                 )
                 new_files += 1
-            elif session.missing:
-                self.engine.set_session_missing(session, False)
+            else:
+                session.mtime = item.mtime
+                if session.missing:
+                    self.engine.set_session_missing(session, False)
 
             file_envelopes, file_lines, truncated = self._poll_file(
                 item, session, current

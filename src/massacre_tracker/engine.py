@@ -47,6 +47,7 @@ def utcnow() -> datetime:
 class SessionState:
     path: Path
     first_seen: datetime
+    mtime: datetime | None = None
     offset: int = 0
     partial: bytes = b""
     line_number: int = 0
@@ -158,15 +159,19 @@ class TrackerEngine:
         live: bool | None = None,
         reset: bool = False,
         first_seen: datetime | None = None,
+        mtime: datetime | None = None,
     ) -> SessionState:
         path = Path(path)
         with self.lock:
             existing = self.sessions.get(path)
             if existing is not None and not reset:
+                if mtime is not None:
+                    existing.mtime = mtime
                 return existing
             session = SessionState(
                 path=path,
                 first_seen=first_seen or utcnow(),
+                mtime=mtime,
                 offset=offset,
                 partial=partial,
                 line_number=line_number,
@@ -475,6 +480,50 @@ class TrackerEngine:
                     key,
                 ),
             )
+
+    def newest_commander_key(self) -> str | None:
+        """Return the commander attached to the newest live journal."""
+
+        with self.lock:
+            candidates = [
+                session
+                for session in self.sessions.values()
+                if session.tracker_key in self.commanders
+                and session.tracker_key is not None
+                and not session.missing
+                and session.live is not False
+            ]
+            if not candidates:
+                return None
+            newest = max(candidates, key=self._session_recency)
+            return newest.tracker_key
+
+    def newest_journal_commander_key(self) -> str | None:
+        """Return the newest journal's commander, if already identified.
+
+        A newly created journal may exist for a moment before its Commander
+        event arrives. Returning None keeps the UI's auto-pick pending until
+        that journal becomes identifiable.
+        """
+
+        with self.lock:
+            candidates = [
+                session
+                for session in self.sessions.values()
+                if not session.missing and session.live is not False
+            ]
+            if not candidates:
+                return None
+            newest = max(candidates, key=self._session_recency)
+            key = newest.tracker_key
+            if key is not None and key in self.commanders:
+                return key
+            return None
+
+    @staticmethod
+    def _session_recency(session: SessionState) -> tuple[datetime, str]:
+        moment = session.mtime or session.last_event_at or session.first_seen
+        return (moment, session.filename)
 
     def commander_view(self, key: str) -> CommanderView | None:
         with self.lock:

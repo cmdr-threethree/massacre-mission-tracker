@@ -23,6 +23,9 @@ tracker.
   - files created after startup,
   - files that are truncated or replaced.
 - Tracks multiple concurrent sessions and multiple commanders.
+- Automatically selects the commander from the newest journal at startup and
+  when a new journal file appears. Manual commander selection takes precedence
+  until another journal appears.
 - Shares mission state between files belonging to the same commander while
   keeping station context separate per file.
 - Automatically credits `Bounty` events to the oldest eligible mission in each
@@ -187,6 +190,10 @@ stack. Reaching `contract_kills` immediately changes the mission to
 ### Sessions and commanders
 
 - A journal file is a session.
+- The commander belonging to the newest journal (by file modification time) is
+  selected automatically at startup. When a new journal file appears, its
+  commander becomes active once its `Commander` event has been read.
+- Manual commander selection is respected until another new journal appears.
 - Mission, stack, target, and bounty-feed state belongs to the commander (`FID`).
 - Multiple files with the same FID share mission state but keep separate
   station context, offsets, partial buffers, and liveness.

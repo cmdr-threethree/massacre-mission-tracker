@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
+
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -202,6 +204,8 @@ class TrackerApp(App[None]):
         self._updating_selectors = False
         self._commander_options_sig: tuple[tuple[str, str], ...] = ()
         self._filter_warning_shown = False
+        self._auto_pick_pending = config.commander_filter is None
+        self._known_session_paths: set[Path] | None = None
         self._pending_delete: tuple[str, int] | None = None
         self._pending_clear_key: str | None = None
         self._copy_mission_id: int | None = None
@@ -385,11 +389,21 @@ class TrackerApp(App[None]):
 
     def _refresh_ui(self) -> None:
         stats = self.engine.stats()
+        sessions = self.engine.all_session_infos()
+        self._detect_new_sessions(sessions)
         keys = self.engine.commander_keys()
         if keys and self.current_key not in keys:
             self.current_key = self._choose_initial_commander(keys)
         elif not keys:
             self.current_key = None
+
+        if keys and self._auto_pick_pending:
+            newest_key = self.engine.newest_journal_commander_key()
+            if newest_key is not None and newest_key in keys:
+                if newest_key != self.current_key:
+                    self.selected_mission_id = None
+                self.current_key = newest_key
+                self._auto_pick_pending = False
 
         self._sync_commander_select(keys)
         self._sync_view_select()
@@ -409,6 +423,16 @@ class TrackerApp(App[None]):
         self._refresh_clipboard()
         self._refresh_empty_message(view)
 
+    def _detect_new_sessions(self, sessions: tuple[SessionInfo, ...]) -> None:
+        paths = {session.path for session in sessions}
+        if self._known_session_paths is None:
+            self._known_session_paths = paths
+            return
+        new_paths = paths - self._known_session_paths
+        self._known_session_paths = paths
+        if new_paths and self.config.commander_filter is None:
+            self._auto_pick_pending = True
+
     def _choose_initial_commander(self, keys: list[str]) -> str:
         wanted = self.config.commander_filter
         if wanted:
@@ -426,9 +450,13 @@ class TrackerApp(App[None]):
             if not self._filter_warning_shown:
                 self._filter_warning_shown = True
                 self.notify(
-                    f"No commander matches {wanted!r}; showing the first commander",
+                    f"No commander matches {wanted!r}; "
+                    "showing the newest journal's commander",
                     severity="warning",
                 )
+        newest = self.engine.newest_commander_key()
+        if newest in keys:
+            return newest
         return keys[0]
 
     def _sync_commander_select(self, keys: list[str]) -> None:
@@ -763,6 +791,7 @@ class TrackerApp(App[None]):
             return
         if event.select.id == "commander-select":
             if isinstance(event.value, str):
+                self._auto_pick_pending = False
                 self.current_key = event.value
                 self.selected_mission_id = None
                 self._refresh_ui()
@@ -1015,6 +1044,7 @@ class TrackerApp(App[None]):
         if not keys:
             self.notify("No commanders available", severity="warning")
             return
+        self._auto_pick_pending = False
         if self.current_key not in keys:
             self.current_key = keys[0]
         else:

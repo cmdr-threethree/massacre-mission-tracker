@@ -316,6 +316,34 @@ def test_commander_display_name_never_falls_back_to_fid():
     assert view.display_name != "F100"
 
 
+def test_newest_commander_comes_from_newest_journal():
+    engine = TrackerEngine()
+    path_a = Path("Journal.2026-10-19T120000.01.log")
+    path_b = Path("Journal.2026-10-19T120500.01.log")
+    engine.register_session(path_a, first_seen=at(0), mtime=at(1))
+    engine.register_session(path_b, first_seen=at(0), mtime=at(2))
+    engine.apply_batch(base_events(path_a, fid="F100", name="A"))
+    engine.apply_batch(base_events(path_b, fid="F200", name="B"))
+
+    assert engine.newest_commander_key() == "F200"
+    assert engine.newest_journal_commander_key() == "F200"
+
+
+def test_newest_journal_without_commander_keeps_auto_pick_pending():
+    engine = TrackerEngine()
+    path_a = Path("Journal.2026-10-19T120000.01.log")
+    path_b = Path("Journal.2026-10-19T120500.01.log")
+    path_c = Path("Journal.2026-10-19T121000.01.log")
+    engine.register_session(path_a, first_seen=at(0), mtime=at(1))
+    engine.register_session(path_b, first_seen=at(0), mtime=at(2))
+    engine.register_session(path_c, first_seen=at(0), mtime=at(3))
+    engine.apply_batch(base_events(path_a, fid="F100", name="A"))
+    engine.apply_batch(base_events(path_b, fid="F200", name="B"))
+
+    assert engine.newest_commander_key() == "F200"
+    assert engine.newest_journal_commander_key() is None
+
+
 def test_stats_and_warnings():
     engine = TrackerEngine()
     engine.note_malformed(3)
