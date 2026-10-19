@@ -8,24 +8,25 @@ Header {
 }
 
 #status-bar {
-    height: 2;
+    height: auto;
+    min-height: 2;
     padding: 0 1;
     background: $panel;
     border-bottom: solid $primary-darken-2;
 }
 
 #status-line {
-    height: 1;
+    height: auto;
+    min-height: 1;
     color: $text-muted;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    text-wrap: wrap;
 }
 
 #warnings-line {
-    height: 1;
+    height: auto;
+    min-height: 1;
     color: $warning;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    text-wrap: wrap;
 }
 
 #controls {
@@ -47,7 +48,7 @@ Header {
 }
 
 #view-select {
-    width: 13;
+    width: 17;
     margin: 0 1 0 0;
 }
 

@@ -384,7 +384,7 @@ class TrackerApp(App[None]):
     def _init_tables(self) -> None:
         mission_table = self.query_one("#missions", DataTable)
         mission_table.add_columns(*MISSION_COLUMNS[:-1])
-        mission_table.add_column(MISSION_COLUMNS[-1], width=14)
+        mission_table.add_column(MISSION_COLUMNS[-1], width=16)
         self.query_one("#stacks-table", DataTable).add_columns(*STACK_COLUMNS)
         self.query_one("#targets-table", DataTable).add_columns(*TARGET_COLUMNS)
         self.query_one("#bounties-table", DataTable).add_columns(*BOUNTY_COLUMNS)

@@ -162,6 +162,8 @@ def test_two_commanders_and_session_panel(tmp_path: Path):
             assert set(app.engine.commander_keys()) == {"F100", "F200"}
             assert app.current_key == "F200"
             assert app.query_one("#sessions-table").row_count == 2
+            assert app.query_one("#status-line").size.height >= 2
+            assert app.query_one("#view-select").size.height == 3
             first = app.current_key
             app.query_one("#missions").focus()
             await pilot.press("ctrl+n")
@@ -256,7 +258,7 @@ def test_status_mission_count_and_wide_state_column(tmp_path: Path):
             assert table.row_count == 1
             assert app.visible_mission_count == 1
             assert "missions 1" in str(app.query_one("#status-line").content)
-            assert table.ordered_columns[-1].width >= 14
+            assert table.ordered_columns[-1].width >= 16
 
             app.action_cycle_view()
             await pilot.pause()
