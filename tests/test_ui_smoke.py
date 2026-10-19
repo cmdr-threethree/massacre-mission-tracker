@@ -4,9 +4,10 @@ import asyncio
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 from massacre_tracker.config import Config
-from massacre_tracker.ui.app import TrackerApp
+from massacre_tracker.ui.app import EngineUpdated, TrackerApp
 from massacre_tracker.ui.screens import HelpScreen, MissingDirectoryScreen
 from tests.builders import (
     BASE_TIME,
@@ -277,6 +278,20 @@ def test_status_mission_count_and_wide_state_column(tmp_path: Path):
             await pilot.pause()
 
     asyncio.run(scenario())
+
+
+def test_idle_engine_update_only_refreshes_status(tmp_path: Path):
+    app = TrackerApp(Config(journal_dir=tmp_path))
+    with (
+        patch.object(app, "_refresh_ui") as full_refresh,
+        patch.object(app, "_refresh_status_only") as status_refresh,
+    ):
+        app.on_engine_updated(EngineUpdated(changed=False))
+        status_refresh.assert_called_once()
+        full_refresh.assert_not_called()
+
+        app.on_engine_updated(EngineUpdated(changed=True))
+        full_refresh.assert_called_once()
 
 
 def test_no_color_option_installs_monochrome_filter(tmp_path: Path):

@@ -67,6 +67,7 @@ class JournalTailer:
         discovered_paths = {item.path for item in discovery.files}
         new_files = 0
         truncated_files = 0
+        session_flags_changed = False
         lines_read = 0
         envelopes: list[EventEnvelope] = []
 
@@ -84,6 +85,7 @@ class JournalTailer:
                 session.mtime = item.mtime
                 if session.missing:
                     self.engine.set_session_missing(session, False)
+                    session_flags_changed = True
 
             file_envelopes, file_lines, truncated = self._poll_file(
                 item, session, current
@@ -97,6 +99,7 @@ class JournalTailer:
             for path, session in self.engine.sessions.items():
                 if path not in discovered_paths and not session.missing:
                     self.engine.set_session_missing(session, True)
+                    session_flags_changed = True
                     self.engine.add_warning(
                         f"{session.filename}: file is missing; "
                         "waiting for it to return"
@@ -113,6 +116,7 @@ class JournalTailer:
             envelopes
             or new_files
             or truncated_files
+            or session_flags_changed
             or resolved
         )
         return TailPollResult(

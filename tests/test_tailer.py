@@ -80,6 +80,7 @@ def test_append_to_existing_file_is_processed_once(tmp_path: Path):
 
     result = tailer.poll_once(now=at(2))
     assert result.events_applied == 0
+    assert not result.changed
     assert engine.stats().events_processed == 4
 
 
@@ -203,8 +204,11 @@ def test_missing_file_does_not_crash_and_is_reported(tmp_path: Path):
     path.unlink()
 
     result = tailer.poll_once(now=at(1))
-    assert not result.changed
+    assert result.changed
     session = engine.session_for(path)
     assert session is not None
     assert session.missing
     assert engine.stats().unreadable_files == 1
+
+    result = tailer.poll_once(now=at(2))
+    assert not result.changed

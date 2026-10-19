@@ -135,6 +135,10 @@ class ScanFailedMessage(Message):
 class EngineUpdated(Message):
     """The background tailer has new state or a new poll timestamp."""
 
+    def __init__(self, changed: bool = True) -> None:
+        super().__init__()
+        self.changed = changed
+
 
 class TailerErrorMessage(Message):
     def __init__(self, error: str) -> None:
@@ -207,6 +211,7 @@ class TrackerApp(App[None]):
         self._filter_warning_shown = False
         self._auto_pick_pending = config.commander_filter is None
         self._known_session_paths: set[Path] | None = None
+        self._idle_refresh_ticks = 0
         self._pending_delete: tuple[str, int] | None = None
         self._pending_clear_key: str | None = None
         self._copy_mission_id: int | None = None
@@ -323,7 +328,9 @@ class TrackerApp(App[None]):
             return
         try:
             tailer.run_forever(
-                on_cycle=lambda _result: self._post(EngineUpdated())
+                on_cycle=lambda result: self._post(
+                    EngineUpdated(changed=result.changed)
+                )
             )
         except Exception as exc:  # pragma: no cover - defensive UI boundary
             if not tailer.stop_event.is_set():
@@ -364,8 +371,11 @@ class TrackerApp(App[None]):
             MissingDirectoryScreen(str(self.config.journal_dir), message.error)
         )
 
-    def on_engine_updated(self, _message: EngineUpdated) -> None:
-        self._refresh_ui()
+    def on_engine_updated(self, message: EngineUpdated) -> None:
+        if message.changed:
+            self._refresh_ui()
+        else:
+            self._refresh_status_only()
 
     def on_tailer_error_message(self, message: TailerErrorMessage) -> None:
         self.engine.add_warning(f"Journal tailer stopped: {message.error}")
@@ -390,7 +400,15 @@ class TrackerApp(App[None]):
         self.query_one("#bounties-table", DataTable).add_columns(*BOUNTY_COLUMNS)
         self.query_one("#sessions-table", DataTable).add_columns(*SESSION_COLUMNS)
 
+    def _refresh_status_only(self) -> None:
+        self._idle_refresh_ticks += 1
+        if self._idle_refresh_ticks >= 30:
+            self._idle_refresh_ticks = 0
+            self._refresh_sessions()
+        self._update_status_text(self.engine.stats())
+
     def _refresh_ui(self) -> None:
+        self._idle_refresh_ticks = 0
         stats = self.engine.stats()
         sessions = self.engine.all_session_infos()
         self._detect_new_sessions(sessions)
@@ -813,13 +831,13 @@ class TrackerApp(App[None]):
         if self._updating_selectors:
             return
         if event.select.id == "commander-select":
-            if isinstance(event.value, str):
+            if isinstance(event.value, str) and event.value != self.current_key:
                 self._auto_pick_pending = False
                 self.current_key = event.value
                 self.selected_mission_id = None
                 self._refresh_ui()
         elif event.select.id == "view-select":
-            if isinstance(event.value, str):
+            if isinstance(event.value, str) and event.value != self.view_mode:
                 self.view_mode = event.value
                 self.selected_mission_id = None
                 self._refresh_ui()
