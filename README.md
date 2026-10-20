@@ -66,6 +66,30 @@ pip install -e '.[dev]'
 python -m pytest
 ```
 
+### Run without cloning
+
+To run the latest source in an isolated, cached environment, use
+[uv](https://docs.astral.sh/uv/):
+
+```bash
+uvx --from git+https://github.com/cmdr-threethree/massacre-mission-tracker \
+  massacre-tracker --journal-dir "/path/to/Elite Dangerous"
+```
+
+To install a persistent command, use `uv` or
+[pipx](https://pipx.pypa.io/):
+
+```bash
+uv tool install git+https://github.com/cmdr-threethree/massacre-mission-tracker
+# or
+pipx install git+https://github.com/cmdr-threethree/massacre-mission-tracker
+
+massacre-tracker --journal-dir "/path/to/Elite Dangerous"
+```
+
+These commands require Python 3.11 or newer and network access. Re-run the
+install command to update to the latest source.
+
 ### Portable Windows bundle
 
 A portable Windows bundle is a zip containing the official CPython embeddable
@@ -87,7 +111,7 @@ packages the application wheel, and writes
 `dist/massacre-tracker-0.1.0-win64.zip`. The whole runtime closure is pure
 Python, so assembling the bundle on Linux produces an equivalent bundle.
 
-To use it on Windows:
+To use it on Windows, download the zip from the latest release, then:
 
 1. Right-click the downloaded zip, choose **Properties**, tick **Unblock**, and
    click **OK**. Windows may also show a SmartScreen warning because the bundle
@@ -381,6 +405,30 @@ A synthetic scan benchmark is available:
 ```bash
 python scripts/bench_scan.py --lines 500000 --files 8
 ```
+
+### Continuous integration and releases
+
+The [CI workflow](.github/workflows/ci.yml) runs the test suite on Linux and
+Windows with Python 3.11 and 3.13, and builds the Windows bundle on every push
+to `main` and every pull request.
+
+To publish a release:
+
+1. Update `version` in `pyproject.toml`.
+2. Commit the change and push a matching tag:
+
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+3. The [release workflow](.github/workflows/release.yml) runs the tests, builds
+   the Windows bundle, smoke-tests it on a Windows runner, and attaches the zip
+   plus `SHA256SUMS` to a GitHub Release. The tag must match the
+   `pyproject.toml` version.
+
+Running the release workflow manually from the Actions tab builds and
+smoke-tests the bundle without publishing a release.
 
 ### Project layout
 
