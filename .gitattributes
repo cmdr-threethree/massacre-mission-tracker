@@ -1,0 +1,8 @@
+* text=auto
+
+# Windows launchers must use CRLF line endings.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Keep the bundle-facing text file readable in Notepad.
+packaging/windows/README.txt text eol=crlf

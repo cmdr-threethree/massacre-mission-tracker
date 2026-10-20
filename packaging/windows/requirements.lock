@@ -1,0 +1,14 @@
+# Exact runtime dependency closure for the portable Windows bundle.
+#
+# Installed with `--no-deps`, so every transitive dependency must be listed
+# here. All packages are pure Python. Regenerate and retest this lock before a
+# release; see packaging/windows/build.py.
+textual==8.2.8
+rich==15.0.0
+markdown-it-py==4.2.0
+mdit-py-plugins==0.6.1
+linkify-it-py==2.2.0
+mdurl==0.1.2
+platformdirs==4.13.5
+pygments==2.21.0
+typing-extensions==4.16.0

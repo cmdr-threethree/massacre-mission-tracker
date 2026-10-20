@@ -44,6 +44,9 @@ tracker.
 
 ## Requirements
 
+The portable Windows bundle includes its own Python. The requirements below
+apply when running from source.
+
 - Python 3.11 or newer
 - [Textual](https://textual.textualize.io/) (installed automatically)
 - Elite Dangerous Live journal files
@@ -62,6 +65,55 @@ For development and tests:
 pip install -e '.[dev]'
 python -m pytest
 ```
+
+### Portable Windows bundle
+
+A portable Windows bundle is a zip containing the official CPython embeddable
+distribution and the pinned runtime dependencies. It needs no system Python
+installation, no pip, and no compiler, and the application still writes nothing
+to disk while it runs.
+
+Build it on Linux, macOS, or Windows. Python 3.11+ is needed only to run the
+build script:
+
+```bash
+python packaging/windows/build.py
+```
+
+The build downloads the Python 3.13.7 embeddable amd64 archive from python.org
+and verifies its SHA-256, downloads the exact dependency versions from
+[`packaging/windows/requirements.lock`](packaging/windows/requirements.lock),
+packages the application wheel, and writes
+`dist/massacre-tracker-0.1.0-win64.zip`. The whole runtime closure is pure
+Python, so assembling the bundle on Linux produces an equivalent bundle.
+
+To use it on Windows:
+
+1. Right-click the downloaded zip, choose **Properties**, tick **Unblock**, and
+   click **OK**. Windows may also show a SmartScreen warning because the bundle
+   is not code-signed.
+2. Extract the zip. Do not run the launcher from inside the archive.
+3. Run `massacre-tracker.cmd`.
+
+The launcher defaults `ED_JOURNAL_DIR` to
+`%USERPROFILE%\Saved Games\Frontier Developments\Elite Dangerous` when the
+variable is unset. `--journal-dir` and an explicitly set `ED_JOURNAL_DIR` take
+precedence. Windows Terminal is recommended; the classic console host works
+through Textual's Windows driver.
+
+The build validates the staged bundle before zipping it:
+
+- every locked dependency is present with the exact version,
+- `site-packages` contains no native `.pyd`, `.dll`, or shared library,
+- `massacre_tracker/ui/app.tcss` is packaged,
+- no `__pycache__` or `.pyc` files are shipped,
+- the staged packages import with the host interpreter (skip with
+  `--skip-smoke`; this does not replace testing the zip on Windows).
+
+Before a release, regenerate `packaging/windows/requirements.lock` and retest
+the bundle on a clean Windows machine. See
+[`WINDOWS_BUNDLE_PLAN.md`](WINDOWS_BUNDLE_PLAN.md) for the Windows validation
+checklist.
 
 ## Usage
 
