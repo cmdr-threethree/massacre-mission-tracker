@@ -469,5 +469,4 @@ tests/             unit, integration, UI smoke, and acceptance tests
 
 ## License
 
-This project is released into the public domain under the Unlicense. See
-[`LICENSE`](LICENSE).
+0BSD. See [`LICENSE`](LICENSE).

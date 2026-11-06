@@ -85,7 +85,7 @@ folder removes the tracker completely.
 License
 -------
 
-The tracker is released into the public domain under the Unlicense. The bundled
-Python distribution is covered by the Python Software Foundation License; see
+The tracker is released under the 0BSD license. The bundled Python
+distribution is covered by the Python Software Foundation License; see
 python\LICENSE.txt. Bundled third-party packages retain their own licenses in
 their .dist-info directories.
