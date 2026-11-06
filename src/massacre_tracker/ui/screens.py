@@ -42,6 +42,12 @@ Views and colour legend
   State column:   ACTIVE=green, REDIRECTED=bright green,
                   COMPLETED=cyan, ABANDONED=yellow, FAILED=red
 
+Warnings
+  Missions that target smugglers are not tracked as pirate massacres. When
+  one is accepted, a warning appears below the status line and a notification
+  is shown. The warning clears when the mission is completed, abandoned, or
+  failed.
+
 Notes
   All state is rebuilt from journal files at startup. Manual edits and the
   clipboard are in memory only and are discarded when the application exits.

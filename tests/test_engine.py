@@ -344,6 +344,46 @@ def test_newest_journal_without_commander_keeps_auto_pick_pending():
     assert engine.newest_journal_commander_key() is None
 
 
+def test_smuggler_mission_is_ignored_and_cleared_on_abandon():
+    engine = TrackerEngine()
+    path = Path("Journal.2026-10-19T120000.01.log")
+    events = base_events(path) + [
+        mission_envelope(
+            9,
+            path=path,
+            line_number=3,
+            target_type="$MissionUtil_FactionTag_Smuggler;",
+            kills=30,
+            reward=5000,
+        )
+    ]
+    engine.apply_batch(events)
+
+    view = engine.commander_view("F100")
+    assert view is not None
+    assert view.missions == ()
+    assert len(view.ignored_missions) == 1
+    ignored = view.ignored_missions[0]
+    assert ignored.mission_id == 9
+    assert ignored.contract_kills == 30
+    assert ignored.reward == 5000
+
+    engine.apply_batch(
+        [
+            envelope(
+                "MissionAbandoned",
+                {"MissionID": 9},
+                path=path,
+                line_number=4,
+                timestamp=at(1),
+            )
+        ]
+    )
+    view = engine.commander_view("F100")
+    assert view is not None
+    assert view.ignored_missions == ()
+
+
 def test_stats_and_warnings():
     engine = TrackerEngine()
     engine.note_malformed(3)

@@ -219,6 +219,8 @@ class TrackerApp(App[None]):
         self._pending_clear_key: str | None = None
         self._copy_mission_id: int | None = None
         self._copy_commander_key: str | None = None
+        self._notified_ignored_ids: dict[str, set[int]] = {}
+        self._ignored_notifications_ready = False
 
     # ------------------------------------------------------------------
     # Composition and lifecycle
@@ -281,6 +283,7 @@ class TrackerApp(App[None]):
         self.scan_error = None
         self.scan_report = None
         self.scan_complete = False
+        self._ignored_notifications_ready = False
         self.scan_progress_text = "Scanning journals"
         self._scan_finished_event.clear()
         self._scan_thread = threading.Thread(
@@ -408,7 +411,12 @@ class TrackerApp(App[None]):
         if self._idle_refresh_ticks >= 30:
             self._idle_refresh_ticks = 0
             self._refresh_sessions()
-        self._update_status_text(self.engine.stats())
+        view = (
+            self.engine.commander_view(self.current_key)
+            if self.current_key is not None
+            else None
+        )
+        self._update_status_text(self.engine.stats(), view)
 
     def _refresh_ui(self) -> None:
         self._idle_refresh_ticks = 0
@@ -440,7 +448,8 @@ class TrackerApp(App[None]):
         visible_missions = self._visible_missions(view) if view is not None else []
         self.visible_mission_count = len(visible_missions)
 
-        self._update_status_text(stats)
+        self._update_status_text(stats, view)
+        self._sync_ignored_notifications(keys, view)
         self._update_sort_label()
 
         self._refresh_missions_table(view, visible_missions)
@@ -530,7 +539,7 @@ class TrackerApp(App[None]):
             finally:
                 self._updating_selectors = False
 
-    def _update_status_text(self, stats) -> None:
+    def _update_status_text(self, stats, view: CommanderView | None = None) -> None:
         if self.scan_error:
             scan_text = "Journal scan failed"
         elif not self.scan_complete:
@@ -558,6 +567,9 @@ class TrackerApp(App[None]):
         self.query_one("#status-line", Static).update(status)
 
         warning_parts: list[str] = []
+        smuggler_warning = self._smuggler_warning(view)
+        if smuggler_warning:
+            warning_parts.append(smuggler_warning)
         if self.scan_error:
             warning_parts.append(self.scan_error)
         if stats.unreadable_files:
@@ -568,6 +580,80 @@ class TrackerApp(App[None]):
             warning_parts.append(f"{stats.malformed_lines} malformed line(s) skipped")
         self.query_one("#warnings-line", Static).update(
             "  |  ".join(warning_parts) if warning_parts else "No warnings"
+        )
+
+    @staticmethod
+    def _smuggler_warning(view: CommanderView | None) -> str | None:
+        if view is None or not view.ignored_missions:
+            return None
+        missions = sorted(
+            view.ignored_missions,
+            key=lambda mission: (mission.accepted_at, mission.mission_id),
+        )
+        if len(missions) == 1:
+            mission = missions[0]
+            name = mission.localised_name or f"mission {mission.mission_id}"
+            return (
+                f"⚠ SMUGGLER TARGET — {name} "
+                f"({mission.contract_kills} kills, {format_credits(mission.reward)}) "
+                f"not tracked; mission {mission.mission_id}"
+            )
+        total_kills = sum(mission.contract_kills for mission in missions)
+        total_reward = sum(mission.reward for mission in missions)
+        latest = missions[-1]
+        name = latest.localised_name or f"mission {latest.mission_id}"
+        return (
+            f"⚠ SMUGGLER TARGET — {len(missions)} ignored missions, "
+            f"{total_kills} kills, {format_credits(total_reward)}; "
+            f"latest: {name}"
+        )
+
+    def _sync_ignored_notifications(
+        self,
+        keys: list[str],
+        view: CommanderView | None,
+    ) -> None:
+        if not self.scan_complete:
+            return
+
+        if not self._ignored_notifications_ready:
+            self._notified_ignored_ids = {}
+            for key in keys:
+                other = self.engine.commander_view(key)
+                if other is not None:
+                    self._notified_ignored_ids[key] = {
+                        mission.mission_id for mission in other.ignored_missions
+                    }
+            self._ignored_notifications_ready = True
+            return
+
+        if view is None:
+            return
+        current = {mission.mission_id for mission in view.ignored_missions}
+        known = self._notified_ignored_ids.setdefault(view.key, set())
+        new_ids = current - known
+        new_missions = [
+            mission
+            for mission in view.ignored_missions
+            if mission.mission_id in new_ids
+        ]
+        self._notified_ignored_ids[view.key] = current
+        if not new_missions:
+            return
+
+        mission = new_missions[0]
+        name = mission.localised_name or f"mission {mission.mission_id}"
+        suffix = (
+            f" (+{len(new_missions) - 1} more)"
+            if len(new_missions) > 1
+            else ""
+        )
+        self.notify(
+            "Smuggler-target mission accepted — not tracked: "
+            f"{name} ({mission.contract_kills} kills){suffix}",
+            title="Smuggler mission",
+            severity="warning",
+            timeout=10,
         )
 
     def _update_sort_label(self) -> None:

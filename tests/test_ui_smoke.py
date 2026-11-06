@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,16 +10,43 @@ from massacre_tracker.config import Config
 from massacre_tracker.ui.app import EngineUpdated, TrackerApp
 from massacre_tracker.ui.screens import HelpScreen, MissingDirectoryScreen
 from tests.builders import (
-    BASE_TIME,
-    bounty,
-    commander,
-    docked,
-    fileheader,
+    bounty as _bounty,
+    commander as _commander,
+    docked as _docked,
+    fileheader as _fileheader,
     journal_path,
-    mission_accepted,
-    mission_event,
+    mission_accepted as _mission_accepted,
+    mission_event as _mission_event,
     write_journal,
 )
+
+# UI smoke tests scan with the real clock, so journal timestamps must be
+# recent enough to fall inside the configured reconstruction window.
+NOW = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(seconds=30)
+
+
+def fileheader(timestamp=None, **fields):
+    return _fileheader(timestamp or NOW, **fields)
+
+
+def commander(timestamp=None, **fields):
+    return _commander(timestamp=timestamp or NOW, **fields)
+
+
+def docked(timestamp=None, **fields):
+    return _docked(timestamp=timestamp or NOW, **fields)
+
+
+def mission_accepted(mission_id, *, timestamp=None, **fields):
+    return _mission_accepted(mission_id, timestamp=timestamp or NOW, **fields)
+
+
+def mission_event(name, mission_id, *, timestamp=None, **fields):
+    return _mission_event(name, mission_id, timestamp=timestamp or NOW, **fields)
+
+
+def bounty(*, timestamp=None, **fields):
+    return _bounty(timestamp=timestamp or NOW, **fields)
 
 
 async def wait_for_scan(app: TrackerApp, pilot, timeout: float = 3.0) -> None:
@@ -34,7 +61,7 @@ def set_mtime(path: Path, dt: datetime) -> None:
 
 
 def single_commander_journal(directory: Path, *, fid: str = "F100", name: str = "Jameson") -> Path:
-    path = journal_path(directory, BASE_TIME, 1)
+    path = journal_path(directory, NOW, 1)
     write_journal(
         path,
         [
@@ -143,18 +170,18 @@ def test_populated_ui_and_keyboard_actions(tmp_path: Path):
 
 
 def test_two_commanders_and_session_panel(tmp_path: Path):
-    path_a = journal_path(tmp_path, BASE_TIME, 1)
+    path_a = journal_path(tmp_path, NOW, 1)
     write_journal(
         path_a,
         [fileheader(), commander(fid="F100", name="A"), docked(), mission_accepted(1)],
     )
-    path_b = journal_path(tmp_path, BASE_TIME, 2)
+    path_b = journal_path(tmp_path, NOW, 2)
     write_journal(
         path_b,
         [fileheader(), commander(fid="F200", name="B"), docked(station="Fisher", system="LHS 20"), mission_accepted(2)],
     )
-    set_mtime(path_a, BASE_TIME - timedelta(minutes=5))
-    set_mtime(path_b, BASE_TIME)
+    set_mtime(path_a, NOW - timedelta(minutes=5))
+    set_mtime(path_b, NOW)
 
     async def scenario() -> None:
         app = TrackerApp(Config(journal_dir=tmp_path))
@@ -181,12 +208,12 @@ def test_two_commanders_and_session_panel(tmp_path: Path):
 
 
 def test_new_journal_switches_to_its_commander(tmp_path: Path):
-    existing = journal_path(tmp_path, BASE_TIME, 1)
+    existing = journal_path(tmp_path, NOW, 1)
     write_journal(
         existing,
         [fileheader(), commander(fid="F100", name="A"), docked(), mission_accepted(1)],
     )
-    set_mtime(existing, BASE_TIME - timedelta(minutes=5))
+    set_mtime(existing, NOW - timedelta(minutes=5))
 
     async def scenario() -> None:
         app = TrackerApp(Config(journal_dir=tmp_path, poll_interval=0.1))
@@ -194,7 +221,7 @@ def test_new_journal_switches_to_its_commander(tmp_path: Path):
             await wait_for_scan(app, pilot)
             assert app.current_key == "F100"
 
-            new_time = BASE_TIME + timedelta(minutes=5)
+            new_time = NOW + timedelta(minutes=5)
             new_path = journal_path(tmp_path, new_time, 2)
             write_journal(
                 new_path,
@@ -219,7 +246,7 @@ def test_new_journal_switches_to_its_commander(tmp_path: Path):
 
 
 def test_live_append_updates_ui(tmp_path: Path):
-    path = journal_path(tmp_path, BASE_TIME, 1)
+    path = journal_path(tmp_path, NOW, 1)
     write_journal(path, [fileheader(), commander(), docked()])
 
     async def scenario() -> None:
@@ -264,7 +291,7 @@ def test_mission_row_updates_without_rebuilding_table(tmp_path: Path):
 
 
 def test_status_mission_count_and_wide_state_column(tmp_path: Path):
-    path = journal_path(tmp_path, BASE_TIME, 1)
+    path = journal_path(tmp_path, NOW, 1)
     write_journal(
         path,
         [
@@ -323,12 +350,12 @@ def test_no_color_option_installs_monochrome_filter(tmp_path: Path):
 
 
 def test_commander_filter_selects_initial_view(tmp_path: Path):
-    path_a = journal_path(tmp_path, BASE_TIME, 1)
+    path_a = journal_path(tmp_path, NOW, 1)
     write_journal(
         path_a,
         [fileheader(), commander(fid="F100", name="Alpha"), docked(), mission_accepted(1)],
     )
-    path_b = journal_path(tmp_path, BASE_TIME, 2)
+    path_b = journal_path(tmp_path, NOW, 2)
     write_journal(
         path_b,
         [fileheader(), commander(fid="F200", name="Beta"), docked(station="Fisher", system="LHS 20"), mission_accepted(2)],
@@ -340,6 +367,77 @@ def test_commander_filter_selects_initial_view(tmp_path: Path):
             await wait_for_scan(app, pilot)
             assert app.current_key == "F200"
             assert app.query_one("#missions").row_count == 1
+            app.action_quit()
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+
+def test_smuggler_mission_warns_and_is_not_tracked(tmp_path: Path):
+    path = journal_path(tmp_path, NOW, 1)
+    write_journal(
+        path,
+        [
+            fileheader(),
+            commander(),
+            docked(),
+            mission_accepted(1),
+            mission_accepted(
+                9,
+                target_type="$MissionUtil_FactionTag_Smuggler;",
+                localised_name="Kill Target Faction Smugglers",
+                kills=30,
+                reward=5000,
+            ),
+            mission_event(
+                "MissionAbandoned",
+                9,
+                timestamp=NOW + timedelta(seconds=1),
+            ),
+        ],
+    )
+
+    async def scenario() -> None:
+        app = TrackerApp(Config(journal_dir=tmp_path, poll_interval=0.1))
+        async with app.run_test(size=(100, 30)) as pilot:
+            await wait_for_scan(app, pilot)
+            table = app.query_one("#missions")
+            assert table.row_count == 1
+            assert "SMUGGLER" not in str(
+                app.query_one("#warnings-line").content
+            )
+
+            with patch.object(app, "notify") as notify:
+                with path.open("a", encoding="utf-8") as handle:
+                    handle.write(
+                        mission_accepted(
+                            10,
+                            target_type="$MissionUtil_FactionTag_Smuggler;",
+                            localised_name="Kill Target Faction Smugglers",
+                            kills=20,
+                            reward=4000,
+                            timestamp=NOW + timedelta(seconds=2),
+                        )
+                        + "\n"
+                    )
+                for _ in range(40):
+                    await asyncio.sleep(0.1)
+                    await pilot.pause()
+                    warnings = str(app.query_one("#warnings-line").content)
+                    if "SMUGGLER TARGET" in warnings:
+                        break
+
+            assert "SMUGGLER TARGET" in str(
+                app.query_one("#warnings-line").content
+            )
+            assert table.row_count == 1
+            view = app.engine.commander_view("F100")
+            assert view is not None
+            assert [m.mission_id for m in view.ignored_missions] == [10]
+            assert any(
+                "Smuggler-target mission accepted" in str(call.args[0])
+                for call in notify.call_args_list
+            )
             app.action_quit()
             await pilot.pause()
 

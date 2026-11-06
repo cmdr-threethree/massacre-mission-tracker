@@ -8,7 +8,9 @@ from massacre_tracker.domain.lifecycle import (
     apply_mission_completed,
     apply_mission_failed,
     apply_mission_redirected,
+    reconcile_ignored_missions,
     reconcile_missions,
+    record_ignored_mission,
     set_manual_state,
 )
 from massacre_tracker.domain.models import (
@@ -46,6 +48,77 @@ def test_ineligible_accept_is_ignored():
     data = json.loads(mission_accepted(1, target_type="NotPirate"))
     assert apply_mission_accepted(tracker, data, BASE_TIME, STATION, True) is None
     assert tracker.missions == {}
+
+
+def test_smuggler_accept_is_remembered_as_ignored():
+    tracker = new_tracker()
+    data = json.loads(
+        mission_accepted(
+            7,
+            target_type="$MissionUtil_FactionTag_Smuggler;",
+            localised_name="Kill Target Faction Smugglers",
+            reward=5000,
+            kills=30,
+        )
+    )
+    data["TargetType_Localised"] = "Smugglers"
+    ignored = record_ignored_mission(tracker, data, BASE_TIME, STATION)
+    assert ignored is not None
+    assert ignored.mission_id == 7
+    assert ignored.source_station == "Galileo"
+    assert ignored.target_type_label == "Smugglers"
+    assert ignored.contract_kills == 30
+    assert ignored.reward == 5000
+    assert tracker.missions == {}
+    assert tracker.ignored_missions[7] is ignored
+
+
+def test_non_smuggler_is_not_remembered_as_ignored():
+    tracker = new_tracker()
+    data = json.loads(mission_accepted(1, target_type="NotPirate"))
+    assert record_ignored_mission(tracker, data, BASE_TIME, STATION) is None
+    assert tracker.ignored_missions == {}
+
+
+def test_duplicate_ignored_mission_is_idempotent():
+    tracker = new_tracker()
+    data = json.loads(
+        mission_accepted(7, target_type="$MissionUtil_FactionTag_Smuggler;")
+    )
+    assert record_ignored_mission(tracker, data, BASE_TIME, STATION) is not None
+    assert record_ignored_mission(tracker, data, BASE_TIME, STATION) is None
+    assert set(tracker.ignored_missions) == {7}
+
+
+def test_terminal_events_clear_ignored_mission():
+    tracker = new_tracker()
+    data = json.loads(
+        mission_accepted(7, target_type="$MissionUtil_FactionTag_Smuggler;")
+    )
+    for event in (
+        apply_mission_completed,
+        apply_mission_abandoned,
+        apply_mission_failed,
+    ):
+        tracker.ignored_missions.clear()
+        record_ignored_mission(tracker, data, BASE_TIME, STATION)
+        event(tracker, {"MissionID": 7})
+        assert tracker.ignored_missions == {}
+
+
+def test_reconciliation_prunes_unlisted_ignored_missions_only():
+    tracker = new_tracker()
+    data = json.loads(
+        mission_accepted(7, target_type="$MissionUtil_FactionTag_Smuggler;")
+    )
+    record_ignored_mission(tracker, data, BASE_TIME, STATION)
+    data = json.loads(
+        mission_accepted(8, target_type="$MissionUtil_FactionTag_Smuggler;")
+    )
+    record_ignored_mission(tracker, data, BASE_TIME, STATION)
+    snapshot = {"Active": [{"MissionID": 7}], "Complete": [], "Failed": []}
+    assert reconcile_ignored_missions(tracker, snapshot) == 1
+    assert set(tracker.ignored_missions) == {7}
 
 
 def test_redirected_fills_progress_and_is_idempotent():

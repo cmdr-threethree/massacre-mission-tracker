@@ -86,6 +86,22 @@ class Mission:
         return replace(self)
 
 
+@dataclass(frozen=True, slots=True)
+class IgnoredMission:
+    """A non-pirate mission that was seen but is not tracked."""
+
+    mission_id: int
+    source_system: str | None
+    source_station: str | None
+    target_faction: str
+    target_type_label: str | None
+    localised_name: str | None
+    contract_kills: int
+    reward: int
+    accepted_at: datetime
+    expires_at: datetime | None
+
+
 @dataclass(slots=True)
 class Bounty:
     timestamp: datetime
@@ -103,6 +119,7 @@ class CommanderTracker:
     fid: str | None = None
     name: str | None = None
     missions: dict[int, Mission] = field(default_factory=dict)
+    ignored_missions: dict[int, IgnoredMission] = field(default_factory=dict)
     bounty_feed: deque[Bounty] = field(default_factory=lambda: deque(maxlen=20))
 
     @property
@@ -122,6 +139,20 @@ class CommanderTracker:
 
     def remove_mission(self, mission_id: int) -> bool:
         return self.missions.pop(mission_id, None) is not None
+
+    def add_ignored_mission(self, mission: IgnoredMission) -> bool:
+        """Add an untracked mission, returning False for a duplicate ID."""
+
+        if (
+            mission.mission_id in self.ignored_missions
+            or mission.mission_id in self.missions
+        ):
+            return False
+        self.ignored_missions[mission.mission_id] = mission
+        return True
+
+    def remove_ignored_mission(self, mission_id: int) -> bool:
+        return self.ignored_missions.pop(mission_id, None) is not None
 
     def clear_terminal(self) -> int:
         ids = [mid for mid, m in self.missions.items() if m.is_terminal]

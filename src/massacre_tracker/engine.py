@@ -13,12 +13,15 @@ from .domain.lifecycle import (
     apply_mission_completed,
     apply_mission_failed,
     apply_mission_redirected,
+    record_ignored_mission,
+    reconcile_ignored_missions,
     reconcile_missions,
     set_manual_state,
 )
 from .domain.models import (
     Bounty,
     CommanderTracker,
+    IgnoredMission,
     Mission,
     MissionState,
     StationContext,
@@ -100,6 +103,7 @@ class CommanderView:
     bounties: tuple[Bounty, ...]
     sessions: tuple[SessionInfo, ...]
     station_names: frozenset[str]
+    ignored_missions: tuple[IgnoredMission, ...] = ()
 
     def stack_summaries(self) -> list[StackSummary]:
         synthetic = CommanderTracker(
@@ -346,6 +350,12 @@ class TrackerEngine:
                 envelope.station,
                 True,
             )
+            record_ignored_mission(
+                tracker,
+                data,
+                envelope.timestamp,
+                envelope.station,
+            )
         elif event == "MissionRedirected":
             apply_mission_redirected(tracker, data)
         elif event == "MissionCompleted":
@@ -356,6 +366,7 @@ class TrackerEngine:
             apply_mission_failed(tracker, data)
         elif event == "Missions":
             reconcile_missions(tracker, data)
+            reconcile_ignored_missions(tracker, data)
         elif event == "Bounty":
             apply_bounty(tracker, data, envelope.timestamp)
 
@@ -415,6 +426,10 @@ class TrackerEngine:
                 )
                 continue
             target.missions[mission_id] = mission
+        for mission_id, ignored in source.ignored_missions.items():
+            if mission_id in target.missions:
+                continue
+            target.ignored_missions.setdefault(mission_id, ignored)
         combined = list(target.bounty_feed) + list(source.bounty_feed)
         target.replace_bounty_feed(combined)
         del self.commanders[source_key]
@@ -551,6 +566,15 @@ class TrackerEngine:
                 display_name=display,
                 missions=tuple(
                     mission.copy() for mission in tracker.missions.values()
+                ),
+                ignored_missions=tuple(
+                    sorted(
+                        tracker.ignored_missions.values(),
+                        key=lambda mission: (
+                            mission.accepted_at,
+                            mission.mission_id,
+                        ),
+                    )
                 ),
                 bounties=tuple(
                     replace(bounty) for bounty in tracker.bounty_feed

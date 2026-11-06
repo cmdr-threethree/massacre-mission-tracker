@@ -233,6 +233,20 @@ Source system, system address, and source station are taken from the session's
 station at the moment the event was read. Sessions share commander mission
 state, but never share station context.
 
+### Smuggler-target warnings
+
+Missions with `TargetType` containing `MissionUtil_FactionTag_Smuggler` are not
+tracked. They are remembered as ignored missions so the UI can warn about them
+without adding them to stacks, target summaries, or kill credit.
+
+- The warning appears below the status line and takes priority over other
+  non-fatal warnings.
+- A notification is shown when a new smuggler mission is accepted after the
+  startup scan. Historical missions replayed during startup do not notify.
+- The ignored mission is forgotten when it is completed, abandoned, or failed,
+  or when a `Missions` snapshot no longer lists it as active. This keeps
+  startup replay from warning about missions that were already abandoned.
+
 ### Mission states
 
 - `ACTIVE` — tracked and participating in its stack.

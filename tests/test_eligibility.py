@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import json
 
-from massacre_tracker.domain.eligibility import build_mission, is_eligible_mission
+from massacre_tracker.domain.eligibility import (
+    build_mission,
+    is_eligible_mission,
+    is_smuggler_target,
+)
 from massacre_tracker.domain.models import StationContext
 from tests.builders import BASE_TIME, iso, mission_accepted
 
@@ -57,6 +61,22 @@ def test_pirate_tag_is_case_insensitive():
         payload(TargetType="prefix missionutil_factiontag_pirate suffix"),
         STATION,
         True,
+    )
+
+
+def test_smuggler_target_is_recognised_but_not_eligible():
+    data = payload(
+        TargetType="$MissionUtil_FactionTag_Smuggler;",
+        TargetType_Localised="Smugglers",
+    )
+    assert is_smuggler_target(data)
+    assert not is_eligible_mission(data, STATION, True)
+    assert build_mission(data, BASE_TIME, STATION, True) is None
+
+
+def test_smuggler_tag_is_case_insensitive():
+    assert is_smuggler_target(
+        payload(TargetType="prefix missionutil_factiontag_smuggler suffix")
     )
 
 

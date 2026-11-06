@@ -10,6 +10,14 @@ from .models import Mission, MissionState, StationContext
 from .values import as_bool, as_int, as_text
 
 PIRATE_TARGET_TAG = "missionutil_factiontag_pirate"
+SMUGGLER_TARGET_TAG = "missionutil_factiontag_smuggler"
+
+
+def is_smuggler_target(data: dict[str, Any]) -> bool:
+    """Return whether a mission targets smugglers rather than pirates."""
+
+    target_type = as_text(data.get("TargetType"))
+    return bool(target_type) and SMUGGLER_TARGET_TAG in target_type.casefold()
 
 
 def is_eligible_mission(
