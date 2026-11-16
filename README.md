@@ -1,8 +1,8 @@
-# Elite Dangerous Massacre Mission Tracker
+# Elite Dangerous Massacre & Mining Mission Tracker
 
-A stateless, live-only terminal tracker for Elite Dangerous massacre missions.
-It reconstructs recent mission state from journal files, then follows every
-journal file in a directory in real time.
+A stateless, live-only terminal tracker for Elite Dangerous massacre and mining
+missions. It reconstructs recent mission state from journal files, then follows
+every journal file in a directory in real time.
 
 All game state lives in memory. The application never creates a database, a
 mission-state file, a cache, a log file, or a clipboard file, and it writes
@@ -10,8 +10,7 @@ nothing on exit.
 
 This is an independent clean-room implementation based on the project's
 specification and public Elite Dangerous journal documentation. It does not
-reuse code, text, identifiers, or assets from any other massacre mission
-tracker.
+reuse code, text, identifiers, or assets from any other mission tracker.
 
 ---
 
@@ -28,13 +27,16 @@ tracker.
   until another journal appears.
 - Shares mission state between files belonging to the same commander while
   keeping station context separate per file.
+- Tracks massacre and mining missions in one combined view, with a mode
+  selector that autodetects the selected commander's latest mission activity.
 - Automatically credits `Bounty` events to the oldest eligible mission in each
   issuing/target stack, one mission per stack per bounty.
-- Provides stack and target-faction summaries, including overlap and reward
-  averages.
+- Automatically tracks mining delivery progress from `CargoDepot` events.
+- Provides stack and target-faction summaries for massacre missions, and
+  commodity summaries for mining missions.
 - Shows the last 20 eligible bounties per commander.
-- Includes manual kill adjustments, manual state changes, mission deletion, and
-  an in-memory source clipboard.
+- Includes manual kill or tonnage adjustments, manual state changes, mission
+  deletion, and an in-memory source clipboard.
 - Ignores Legacy (major version 3) sessions for tracking and provides no Legacy
   view.
 - Handles partial lines, malformed JSON, missing files, and concurrent appends.
@@ -44,11 +46,11 @@ tracker.
 
 ## Screenshots
 
-![Massacre Mission Tracker screenshot 1](01.svg)
+![Massacre & Mining Mission Tracker screenshot 1](01.svg)
 
-![Massacre Mission Tracker screenshot 2](02.svg)
+![Massacre & Mining Mission Tracker screenshot 2](02.svg)
 
-![Massacre Mission Tracker screenshot 3](03.svg)
+![Massacre & Mining Mission Tracker screenshot 3](03.svg)
 
 ---
 
@@ -196,10 +198,11 @@ required.
 | `r` | Mark selected mission active again |
 | `delete` | Delete selected mission from memory |
 | `y` | Add selected mission source to the in-memory clipboard |
-| `shift+y` | Open the copy menu for source system, source station, or destination |
+| `shift+y` | Open the copy menu for source system/station or destination system/station |
 | `ctrl+y` | View the in-memory clipboard |
 | `ctrl+x` | Clear completed/abandoned/failed missions from memory |
 | `ctrl+n` | Switch to the next commander |
+| `t` | Switch between Massacre and Mining modes |
 | `v` | Switch between Active and Completed views |
 | `s` | Cycle sort key |
 | `shift+s` | Toggle sort direction |
@@ -214,10 +217,10 @@ the next startup reconstructs state from the journal files again.
 
 ## What is tracked
 
-### Mission eligibility
+### Massacre mission eligibility
 
-A `MissionAccepted` event creates a tracked mission only when all of these are
-true:
+A `MissionAccepted` event creates a tracked massacre mission only when all of
+these are true:
 
 1. The session is Live (`Fileheader.gameversion` major version ≥ 4), or its
    liveness is unknown and has been treated as Live with a warning.
@@ -232,6 +235,24 @@ Duplicate mission IDs are idempotent.
 Source system, system address, and source station are taken from the session's
 station at the moment the event was read. Sessions share commander mission
 state, but never share station context.
+
+### Mining mission eligibility
+
+A mining mission is tracked when the `MissionAccepted.Name` starts with
+`Mission_Mining`, and `Commodity` plus a positive `Count` are present. The
+session must be Live and have a known current station. Commodity, required
+units, destination, reward, expiry, and wing status are taken from the
+acceptance event.
+
+Mining delivery progress comes from `CargoDepot` events:
+
+- only `UpdateType: "Deliver"` updates are applied;
+- `ItemsDelivered` is treated as cumulative;
+- delivery progress is clamped to the required count;
+- reaching the required count sets the mission to `REDIRECTED`, the same
+  ready-to-turn-in state used by massacre missions.
+
+`MissionRedirected` is not required for mining readiness.
 
 ### Smuggler-target warnings
 
@@ -249,9 +270,10 @@ without adding them to stacks, target summaries, or kill credit.
 
 ### Mission states
 
-- `ACTIVE` — tracked and participating in its stack.
-- `REDIRECTED` — kill requirement met; no longer in its stack, but included in
-  target summaries.
+- `ACTIVE` — tracked and still in progress.
+- `REDIRECTED` — requirement met (contract kills or delivered commodity
+  units); no longer participating in a massacre stack, but included in
+  summaries and ready to turn in.
 - `COMPLETED` — completed; reward replaced by the completion event reward.
 - `ABANDONED` — reward zero.
 - `FAILED` — reward zero.
@@ -276,13 +298,16 @@ stack. Reaching `contract_kills` immediately changes the mission to
 
 ### Summaries
 
-- **Stack summary:** groups `ACTIVE` missions by issuing faction and target
-  faction. Deficit is the difference between the largest contract total for
-  that target faction and this stack's total.
-- **Target summary:** includes `ACTIVE` and `REDIRECTED` missions. It reports
-  the largest stack contract, total contract, overlap ratio, remaining
+- **Stack summary:** groups `ACTIVE` massacre missions by issuing faction and
+  target faction. Deficit is the difference between the largest contract total
+  for that target faction and this stack's total.
+- **Target summary:** includes `ACTIVE` and `REDIRECTED` massacre missions. It
+  reports the largest stack contract, total contract, overlap ratio, remaining
   required kills, oldest-active kills-to-next-completion, reward totals, and
   rounded reward averages.
+- **Commodity summary:** groups `ACTIVE` and `REDIRECTED` mining missions by
+  commodity. It reports mission counts, required/delivered/remaining units,
+  reward totals, ready count, and the earliest expiry.
 - **Ready to turn in:** a `REDIRECTED` mission whose source station name matches
   any station currently occupied by a session for the same commander,
   case-insensitively. This is derived state and is never stored on the mission.
@@ -294,7 +319,11 @@ stack. Reaching `contract_kills` immediately changes the mission to
   selected automatically at startup. When a new journal file appears, its
   commander becomes active once its `Commander` event has been read.
 - Manual commander selection is respected until another new journal appears.
-- Mission, stack, target, and bounty-feed state belongs to the commander (`FID`).
+- The Massacre/Mining mode is autodetected from the selected commander's latest
+  mission activity. Manual mode selection is respected until the commander
+  changes or another new journal appears.
+- Mission, stack, target, commodity, and bounty-feed state belongs to the
+  commander (`FID`).
 - Multiple files with the same FID share mission state but keep separate
   station context, offsets, partial buffers, and liveness.
 - If a file has no `Commander` event yet, gameplay events are buffered. At end

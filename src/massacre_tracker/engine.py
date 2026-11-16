@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from .domain.kills import adjust_all_stacks, adjust_mission, apply_bounty
 from .domain.lifecycle import (
+    apply_cargo_depot,
     apply_mission_abandoned,
     apply_mission_accepted,
     apply_mission_completed,
@@ -23,12 +24,15 @@ from .domain.models import (
     CommanderTracker,
     IgnoredMission,
     Mission,
+    MissionKind,
     MissionState,
     StationContext,
 )
 from .domain.summaries import (
+    MiningCommoditySummary,
     StackSummary,
     TargetSummary,
+    build_mining_summaries,
     build_stack_summaries,
     build_target_summaries,
 )
@@ -104,6 +108,7 @@ class CommanderView:
     sessions: tuple[SessionInfo, ...]
     station_names: frozenset[str]
     ignored_missions: tuple[IgnoredMission, ...] = ()
+    last_mission_kind: MissionKind | None = None
 
     def stack_summaries(self) -> list[StackSummary]:
         synthetic = CommanderTracker(
@@ -122,6 +127,15 @@ class CommanderView:
             missions={m.mission_id: m for m in self.missions},
         )
         return build_target_summaries(synthetic)
+
+    def mining_summaries(self) -> list[MiningCommoditySummary]:
+        synthetic = CommanderTracker(
+            key=self.key,
+            fid=self.fid,
+            name=self.name,
+            missions={m.mission_id: m for m in self.missions},
+        )
+        return build_mining_summaries(synthetic)
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,6 +381,8 @@ class TrackerEngine:
         elif event == "Missions":
             reconcile_missions(tracker, data)
             reconcile_ignored_missions(tracker, data)
+        elif event == "CargoDepot":
+            apply_cargo_depot(tracker, data)
         elif event == "Bounty":
             apply_bounty(tracker, data, envelope.timestamp)
 
@@ -432,6 +448,8 @@ class TrackerEngine:
             target.ignored_missions.setdefault(mission_id, ignored)
         combined = list(target.bounty_feed) + list(source.bounty_feed)
         target.replace_bounty_feed(combined)
+        if target.last_mission_kind is None:
+            target.last_mission_kind = source.last_mission_kind
         del self.commanders[source_key]
 
     def resolve_unknown_sessions(
@@ -581,6 +599,7 @@ class TrackerEngine:
                 ),
                 sessions=sessions,
                 station_names=stations,
+                last_mission_kind=tracker.last_mission_kind,
             )
 
     def all_session_infos(self) -> tuple[SessionInfo, ...]:

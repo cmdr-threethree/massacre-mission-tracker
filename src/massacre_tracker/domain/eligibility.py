@@ -6,11 +6,12 @@ from datetime import datetime
 from typing import Any
 
 from ..journal.events import parse_timestamp
-from .models import Mission, MissionState, StationContext
+from .models import Mission, MissionKind, MissionState, StationContext
 from .values import as_bool, as_int, as_text
 
 PIRATE_TARGET_TAG = "missionutil_factiontag_pirate"
 SMUGGLER_TARGET_TAG = "missionutil_factiontag_smuggler"
+MINING_NAME_PREFIX = "Mission_Mining"
 
 
 def is_smuggler_target(data: dict[str, Any]) -> bool:
@@ -18,6 +19,17 @@ def is_smuggler_target(data: dict[str, Any]) -> bool:
 
     target_type = as_text(data.get("TargetType"))
     return bool(target_type) and SMUGGLER_TARGET_TAG in target_type.casefold()
+
+
+def is_mining_mission(data: dict[str, Any]) -> bool:
+    """Return whether the accepted mission is a mining mission."""
+
+    name = as_text(data.get("Name")) or ""
+    if not name.startswith(MINING_NAME_PREFIX):
+        return False
+    if not as_text(data.get("Commodity")):
+        return False
+    return as_int(data.get("Count"), 0) > 0
 
 
 def is_eligible_mission(
@@ -31,6 +43,9 @@ def is_eligible_mission(
         return False
     if not station.station:
         return False
+
+    if is_mining_mission(data):
+        return True
 
     if "KillCount" not in data:
         return False
@@ -61,6 +76,9 @@ def build_mission(
     if mission_id is None:
         return None
 
+    if is_mining_mission(data):
+        return _build_mining_mission(data, mission_id, timestamp, station)
+
     target_faction = as_text(data.get("TargetFaction"))
     contract = as_int(data.get("KillCount"), 0)
     if not target_faction or contract <= 0:
@@ -73,6 +91,7 @@ def build_mission(
         source_station=station.station,
         issuing_faction=as_text(data.get("Faction")) or "",
         destination_system=as_text(data.get("DestinationSystem")),
+        destination_station=as_text(data.get("DestinationStation")),
         target_faction=target_faction,
         localised_name=as_text(data.get("LocalisedName")),
         reward=as_int(data.get("Reward"), 0),
@@ -82,7 +101,51 @@ def build_mission(
         accepted_at=timestamp,
         expires_at=parse_timestamp(data.get("Expiry")),
         state=MissionState.ACTIVE,
+        kind=MissionKind.MASSACRE,
     )
+
+
+def _build_mining_mission(
+    data: dict[str, Any],
+    mission_id: int,
+    timestamp: datetime,
+    station: StationContext,
+) -> Mission | None:
+    commodity = _commodity_label(data)
+    required = as_int(data.get("Count"), 0)
+    if not commodity or required <= 0:
+        return None
+
+    return Mission(
+        mission_id=mission_id,
+        source_system=station.system,
+        system_address=station.system_address,
+        source_station=station.station,
+        issuing_faction=as_text(data.get("Faction")) or "",
+        destination_system=as_text(data.get("DestinationSystem")),
+        destination_station=as_text(data.get("DestinationStation")),
+        target_faction="",
+        localised_name=as_text(data.get("LocalisedName")),
+        reward=as_int(data.get("Reward"), 0),
+        contract_kills=required,
+        progress_kills=0,
+        wing=as_bool(data.get("Wing")),
+        accepted_at=timestamp,
+        expires_at=parse_timestamp(data.get("Expiry")),
+        state=MissionState.ACTIVE,
+        kind=MissionKind.MINING,
+        commodity=commodity,
+    )
+
+
+def _commodity_label(data: dict[str, Any]) -> str | None:
+    localised = as_text(data.get("Commodity_Localised"))
+    if localised:
+        return localised
+    raw = as_text(data.get("Commodity"))
+    if not raw:
+        return None
+    return raw.strip("$").removesuffix("_Name;").replace("_", " ")
 
 
 def _mission_id(data: dict[str, Any]) -> int | None:

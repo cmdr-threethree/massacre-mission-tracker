@@ -16,8 +16,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="massacre-tracker",
         description=(
-            "Track Elite Dangerous massacre missions live from journal files. "
-            "All state is reconstructed in memory and is never written to disk."
+            "Track Elite Dangerous massacre and mining missions live from "
+            "journal files. All state is reconstructed in memory and is never "
+            "written to disk."
         ),
     )
     parser.add_argument(

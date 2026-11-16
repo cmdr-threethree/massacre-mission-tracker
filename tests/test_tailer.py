@@ -12,10 +12,12 @@ from tests.builders import (
     BASE_TIME,
     at,
     bounty,
+    cargo_depot,
     commander,
     docked,
     fileheader,
     journal_path,
+    mining_mission_accepted,
     mission_accepted,
     write_journal,
 )
@@ -212,3 +214,24 @@ def test_missing_file_does_not_crash_and_is_reported(tmp_path: Path):
 
     result = tailer.poll_once(now=at(2))
     assert not result.changed
+
+
+def test_live_cargo_depot_updates_mining_progress(tmp_path: Path):
+    path = initial_file(tmp_path)
+    set_mtime(path, BASE_TIME)
+    engine, config = make_engine(tmp_path)
+    tailer = JournalTailer(engine, config, clock=lambda: at(1))
+
+    write_journal(
+        path,
+        [
+            mining_mission_accepted(7, count=100),
+            cargo_depot(7, delivered=40, total=100, timestamp=at(1)),
+        ],
+        append=True,
+    )
+    tailer.poll_once(now=at(2))
+    view = engine.commander_view("F100")
+    assert view is not None
+    assert view.missions[0].progress_amount == 40
+    assert view.missions[0].state is MissionState.ACTIVE

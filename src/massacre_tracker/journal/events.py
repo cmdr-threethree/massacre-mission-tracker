@@ -23,6 +23,7 @@ RELEVANT_EVENTS = frozenset(
         "MissionAbandoned",
         "MissionFailed",
         "Missions",
+        "CargoDepot",
         "Bounty",
     }
 )
@@ -35,6 +36,7 @@ GAMEPLAY_EVENTS = frozenset(
         "MissionAbandoned",
         "MissionFailed",
         "Missions",
+        "CargoDepot",
         "Bounty",
     }
 )

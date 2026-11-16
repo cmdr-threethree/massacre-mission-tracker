@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from massacre_tracker.domain.lifecycle import (
+    apply_cargo_depot,
     apply_mission_abandoned,
     apply_mission_accepted,
     apply_mission_completed,
@@ -15,10 +16,11 @@ from massacre_tracker.domain.lifecycle import (
 )
 from massacre_tracker.domain.models import (
     CommanderTracker,
+    MissionKind,
     MissionState,
     StationContext,
 )
-from tests.builders import BASE_TIME, mission_accepted
+from tests.builders import BASE_TIME, cargo_depot, mission_accepted, mining_mission_accepted
 
 STATION = StationContext(system="Sol", system_address=1, station="Galileo")
 
@@ -29,6 +31,13 @@ def new_tracker() -> CommanderTracker:
 
 def accepted(tracker, mission_id=1, **overrides):
     data = json.loads(mission_accepted(mission_id, **overrides))
+    mission = apply_mission_accepted(tracker, data, BASE_TIME, STATION, True)
+    assert mission is not None
+    return mission
+
+
+def accepted_mining(tracker, mission_id=1, **overrides):
+    data = json.loads(mining_mission_accepted(mission_id, **overrides))
     mission = apply_mission_accepted(tracker, data, BASE_TIME, STATION, True)
     assert mission is not None
     return mission
@@ -199,3 +208,107 @@ def test_manual_state_change_and_reward_rules():
     assert set_manual_state(tracker, 1, MissionState.ACTIVE)
     assert tracker.missions[1].state is MissionState.ACTIVE
     assert not set_manual_state(tracker, 99, MissionState.COMPLETED)
+
+
+def test_mining_accept_builds_mining_mission_fields():
+    tracker = new_tracker()
+    mission = accepted_mining(
+        tracker,
+        99,
+        faction="Miners Guild",
+        commodity="Gallite",
+        count=780,
+        reward=42_000_000,
+        destination_system="Bismarck",
+        destination_station="Bismarck Legacy",
+    )
+    assert mission.kind is MissionKind.MINING
+    assert mission.commodity == "Gallite"
+    assert mission.required_amount == 780
+    assert mission.progress_amount == 0
+    assert mission.destination_station == "Bismarck Legacy"
+    assert mission.target_faction == ""
+    assert tracker.last_mission_kind is MissionKind.MINING
+
+
+def test_mining_partial_delivery_stays_active():
+    tracker = new_tracker()
+    mission = accepted_mining(tracker, 1, count=100)
+    data = json.loads(cargo_depot(1, delivered=40, total=100))
+    assert apply_cargo_depot(tracker, data)
+    assert mission.progress_amount == 40
+    assert mission.state is MissionState.ACTIVE
+
+
+def test_mining_full_delivery_becomes_redirected_and_clamps():
+    tracker = new_tracker()
+    mission = accepted_mining(tracker, 1, count=100)
+    data = json.loads(cargo_depot(1, delivered=100, total=100))
+    assert apply_cargo_depot(tracker, data)
+    assert mission.progress_amount == 100
+    assert mission.state is MissionState.REDIRECTED
+    assert apply_cargo_depot(
+        tracker, json.loads(cargo_depot(1, delivered=150, total=100))
+    )
+    assert mission.progress_amount == 100
+
+
+def test_mining_delivery_uses_cumulative_item_count():
+    tracker = new_tracker()
+    mission = accepted_mining(tracker, 1, count=780)
+    apply_cargo_depot(
+        tracker, json.loads(cargo_depot(1, delivered=411, total=780, count=411))
+    )
+    assert mission.progress_amount == 411
+    apply_cargo_depot(
+        tracker, json.loads(cargo_depot(1, delivered=780, total=780, count=369))
+    )
+    assert mission.progress_amount == 780
+    assert mission.state is MissionState.REDIRECTED
+
+
+def test_mining_delivery_ignores_non_deliver_updates_and_other_kinds():
+    tracker = new_tracker()
+    mining = accepted_mining(tracker, 1, count=100)
+    massacre = accepted(tracker, 2)
+    assert not apply_cargo_depot(
+        tracker, json.loads(cargo_depot(1, delivered=50, update_type="Collect"))
+    )
+    assert mining.progress_amount == 0
+    assert not apply_cargo_depot(tracker, {"MissionID": 2, "ItemsDelivered": 5})
+    assert massacre.progress_kills == 0
+
+
+def test_mining_completion_uses_event_reward():
+    tracker = new_tracker()
+    mission = accepted_mining(tracker, 1, reward=5000)
+    assert apply_mission_completed(tracker, {"MissionID": 1, "Reward": 7777})
+    assert mission.state is MissionState.COMPLETED
+    assert mission.reward == 7777
+    assert tracker.last_mission_kind is MissionKind.MINING
+
+
+def test_mining_redirect_updates_destination_without_filling_progress():
+    tracker = new_tracker()
+    mission = accepted_mining(tracker, 1, count=100)
+    assert apply_mission_redirected(
+        tracker,
+        {
+            "MissionID": 1,
+            "NewDestinationSystem": "New System",
+            "NewDestinationStation": "New Station",
+        },
+    )
+    assert mission.state is MissionState.ACTIVE
+    assert mission.progress_amount == 0
+    assert mission.destination_system == "New System"
+    assert mission.destination_station == "New Station"
+
+
+def test_mining_manual_state_tracks_latest_kind():
+    tracker = new_tracker()
+    accepted(tracker, 1)
+    accepted_mining(tracker, 2)
+    assert tracker.last_mission_kind is MissionKind.MINING
+    assert set_manual_state(tracker, 1, MissionState.ABANDONED)
+    assert tracker.last_mission_kind is MissionKind.MASSACRE

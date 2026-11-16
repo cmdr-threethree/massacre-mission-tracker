@@ -18,6 +18,7 @@ from massacre_tracker.domain.lifecycle import (
 )
 from massacre_tracker.domain.models import (
     CommanderTracker,
+    MissionKind,
     MissionState,
     StationContext,
 )
@@ -34,12 +35,14 @@ from tests.builders import (
     BASE_TIME,
     at,
     bounty,
+    cargo_depot,
     commander,
     docked,
     fileheader,
     journal_path,
     mission_accepted,
     mission_event,
+    mining_mission_accepted,
     write_journal,
 )
 from tests.helpers import mission_payload
@@ -422,3 +425,69 @@ def test_acceptance_20_no_writes(tmp_path: Path):
     after = {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
     assert before == after
     assert not any(p.name.startswith("mission") for p in tmp_path.iterdir())
+
+
+def test_acceptance_21_mining_missions_reconstruct_cargo_depot_progress(
+    tmp_path: Path,
+):
+    path = journal_path(tmp_path, BASE_TIME, 1)
+    write_journal(
+        path,
+        [
+            fileheader(),
+            commander(),
+            docked(),
+            mining_mission_accepted(
+                1, count=100, commodity="Bertrandite", reward=1000
+            ),
+            mining_mission_accepted(
+                2, count=50, commodity="Gallite", reward=2000, timestamp=at(1)
+            ),
+            cargo_depot(1, delivered=40, total=100, timestamp=at(2)),
+            cargo_depot(2, delivered=50, total=50, timestamp=at(3)),
+        ],
+    )
+
+    engine, _ = scan(tmp_path)
+    view = engine.commander_view("F100")
+    assert view is not None
+    assert view.last_mission_kind is MissionKind.MINING
+    missions = {mission.mission_id: mission for mission in view.missions}
+    assert missions[1].kind is MissionKind.MINING
+    assert missions[1].progress_amount == 40
+    assert missions[1].state is MissionState.ACTIVE
+    assert missions[2].progress_amount == 50
+    assert missions[2].state is MissionState.REDIRECTED
+
+    summaries = {summary.commodity: summary for summary in view.mining_summaries()}
+    assert summaries["Bertrandite"].delivered_units == 40
+    assert summaries["Bertrandite"].remaining_units == 60
+    assert summaries["Gallite"].ready_count == 1
+
+
+def test_acceptance_22_mining_completion_and_mode_autodetection(
+    tmp_path: Path,
+):
+    path = journal_path(tmp_path, BASE_TIME, 1)
+    write_journal(
+        path,
+        [
+            fileheader(),
+            commander(),
+            docked(),
+            mining_mission_accepted(1, count=100, reward=5000),
+            cargo_depot(1, delivered=100, total=100, timestamp=at(1)),
+            mission_event(
+                "MissionCompleted", 1, Reward=4321, timestamp=at(2)
+            ),
+        ],
+    )
+
+    engine, _ = scan(tmp_path)
+    view = engine.commander_view("F100")
+    assert view is not None
+    assert view.last_mission_kind is MissionKind.MINING
+    mission = view.missions[0]
+    assert mission.state is MissionState.COMPLETED
+    assert mission.reward == 4321
+    assert view.mining_summaries() == []

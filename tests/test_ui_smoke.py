@@ -11,10 +11,12 @@ from massacre_tracker.ui.app import EngineUpdated, TrackerApp
 from massacre_tracker.ui.screens import HelpScreen, MissingDirectoryScreen
 from tests.builders import (
     bounty as _bounty,
+    cargo_depot as _cargo_depot,
     commander as _commander,
     docked as _docked,
     fileheader as _fileheader,
     journal_path,
+    mining_mission_accepted as _mining_mission_accepted,
     mission_accepted as _mission_accepted,
     mission_event as _mission_event,
     write_journal,
@@ -47,6 +49,16 @@ def mission_event(name, mission_id, *, timestamp=None, **fields):
 
 def bounty(*, timestamp=None, **fields):
     return _bounty(timestamp=timestamp or NOW, **fields)
+
+
+def mining_mission_accepted(mission_id, *, timestamp=None, **fields):
+    return _mining_mission_accepted(
+        mission_id, timestamp=timestamp or NOW, **fields
+    )
+
+
+def cargo_depot(mission_id, *, timestamp=None, **fields):
+    return _cargo_depot(mission_id, timestamp=timestamp or NOW, **fields)
 
 
 async def wait_for_scan(app: TrackerApp, pilot, timeout: float = 3.0) -> None:
@@ -457,6 +469,116 @@ def test_bounty_is_reflected_in_ui_feed(tmp_path: Path):
             view = app.engine.commander_view("F100")
             assert view is not None
             assert view.missions[0].progress_kills == 1
+            app.action_quit()
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+
+def test_mining_mode_autodetected_and_rendered(tmp_path: Path):
+    path = journal_path(tmp_path, NOW, 1)
+    write_journal(
+        path,
+        [
+            fileheader(),
+            commander(),
+            docked(),
+            mining_mission_accepted(
+                7,
+                count=100,
+                commodity="Bertrandite",
+                reward=5000,
+                destination_system="Sol",
+                destination_station="Galileo",
+            ),
+            cargo_depot(7, delivered=40, total=100, commodity="Bertrandite"),
+        ],
+    )
+
+    async def scenario() -> None:
+        app = TrackerApp(Config(journal_dir=tmp_path))
+        async with app.run_test(size=(100, 30)) as pilot:
+            await wait_for_scan(app, pilot)
+            assert app.mission_mode == "mining"
+            assert app.query_one("#mode-select").value == "mining"
+            table = app.query_one("#missions")
+            assert table.row_count == 1
+            labels = [column.label.plain for column in table.ordered_columns]
+            assert "COMMODITY" in labels
+            assert "DELIVERED" in labels
+            row = table.get_row("7")
+            assert row[4].plain == "Bertrandite"
+            assert row[5].plain == "40 / 100"
+            assert app.query_one("#commodities-table").row_count == 1
+            details = app.query_one("#details")
+            assert details.active == "tab-commodities"
+            commodity_row = app.query_one("#commodities-table").get_row_at(0)
+            assert commodity_row[0] == "Bertrandite"
+            assert commodity_row[2] == "100"
+            assert commodity_row[3] == "40"
+
+            table.focus()
+            await pilot.press("t")
+            await pilot.pause()
+            assert app.mission_mode == "massacre"
+            assert app.query_one("#mode-select").value == "massacre"
+            assert table.row_count == 0
+            massacre_labels = [
+                column.label.plain for column in table.ordered_columns
+            ]
+            assert "KILLS" in massacre_labels
+            assert "COMMODITY" not in massacre_labels
+            assert details.active == "tab-stacks"
+
+            await pilot.press("t")
+            await pilot.pause()
+            assert app.mission_mode == "mining"
+            assert table.row_count == 1
+            app.action_quit()
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+
+def test_mode_follows_commander_latest_activity(tmp_path: Path):
+    mining_path = journal_path(tmp_path, NOW, 1)
+    write_journal(
+        mining_path,
+        [
+            fileheader(),
+            commander(fid="F100", name="Miner"),
+            docked(),
+            mining_mission_accepted(1, count=100),
+        ],
+    )
+    massacre_path = journal_path(tmp_path, NOW, 2)
+    write_journal(
+        massacre_path,
+        [
+            fileheader(),
+            commander(fid="F200", name="Hunter", timestamp=NOW),
+            docked(timestamp=NOW),
+            mission_accepted(2, timestamp=NOW),
+        ],
+    )
+    set_mtime(mining_path, NOW - timedelta(minutes=5))
+    set_mtime(massacre_path, NOW)
+
+    async def scenario() -> None:
+        app = TrackerApp(Config(journal_dir=tmp_path))
+        async with app.run_test(size=(100, 30)) as pilot:
+            await wait_for_scan(app, pilot)
+            assert app.current_key == "F200"
+            assert app.mission_mode == "massacre"
+            assert app.query_one("#missions").row_count == 1
+
+            app.query_one("#missions").focus()
+            await pilot.press("ctrl+n")
+            await pilot.pause()
+            assert app.current_key == "F100"
+            assert app.mission_mode == "mining"
+            assert app.query_one("#mode-select").value == "mining"
+            assert app.query_one("#missions").row_count == 1
             app.action_quit()
             await pilot.pause()
 

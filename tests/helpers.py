@@ -57,3 +57,30 @@ def mission_payload(
         "Wing": wing,
         "TargetType": target_type,
     }
+
+
+def mining_payload(
+    mission_id: int,
+    *,
+    faction: str = "Mining Issuer",
+    commodity: str = "Bertrandite",
+    count: int = 100,
+    reward: int = 5000,
+    wing: bool = True,
+    destination_system: str = "Destination",
+    destination_station: str = "Destination Station",
+    name: str = "Mission_Mining_Expansion",
+) -> dict[str, Any]:
+    return {
+        "MissionID": mission_id,
+        "Name": name,
+        "Faction": faction,
+        "Commodity": f"${commodity}_Name;",
+        "Commodity_Localised": commodity,
+        "Count": count,
+        "DestinationSystem": destination_system,
+        "DestinationStation": destination_station,
+        "LocalisedName": f"Mining Expansion Support needs {count} Units of {commodity}",
+        "Reward": reward,
+        "Wing": wing,
+    }

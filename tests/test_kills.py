@@ -191,3 +191,25 @@ def test_bounty_feed_keeps_last_twenty_with_deltas():
     assert t.bounty_feed[-1].reward == 124
     assert t.bounty_feed[-1].delta_since_previous == 10
     assert t.bounty_feed[0].reward == 105
+
+
+def test_manual_adjustment_works_for_mining_tonnage():
+    from tests.builders import mining_mission_accepted
+
+    t = tracker()
+    data = json.loads(mining_mission_accepted(9, count=100))
+    from massacre_tracker.domain.lifecycle import apply_mission_accepted
+
+    mission = apply_mission_accepted(t, data, at(0), STATION, True)
+    assert mission is not None
+    assert adjust_mission(t, 9, 1)
+    assert mission.progress_amount == 1
+    assert mission.state is MissionState.ACTIVE
+    mission.progress_kills = 99
+    assert adjust_mission(t, 9, 1)
+    assert mission.progress_amount == 100
+    assert mission.state is MissionState.REDIRECTED
+    assert adjust_mission(t, 9, -1)
+    assert mission.progress_amount == 99
+    assert mission.state is MissionState.ACTIVE
+    assert adjust_all_stacks(t, 1) == 0

@@ -10,6 +10,7 @@ from ..domain.models import Mission
 @dataclass(frozen=True, slots=True)
 class SourceTriple:
     destination_system: str
+    destination_station: str | None
     source_system: str | None
     source_station: str | None
 
@@ -17,15 +18,17 @@ class SourceTriple:
     def from_mission(cls, mission: Mission) -> SourceTriple:
         return cls(
             destination_system=mission.destination_system or "",
+            destination_station=mission.destination_station,
             source_system=mission.source_system,
             source_station=mission.source_station,
         )
 
     def render(self) -> str:
         return (
-            f"Destination: {self.destination_system or '—'} | "
-            f"Source system: {self.source_system or '—'} | "
-            f"Source station: {self.source_station or '—'}"
+            f"Destination: {self.destination_system or '—'}"
+            f"{f' / {self.destination_station}' if self.destination_station else ''}"
+            f" | Source system: {self.source_system or '—'}"
+            f" | Source station: {self.source_station or '—'}"
         )
 
 

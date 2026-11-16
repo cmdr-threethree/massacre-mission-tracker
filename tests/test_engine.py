@@ -3,11 +3,11 @@ from __future__ import annotations
 from datetime import timedelta
 from pathlib import Path
 
-from massacre_tracker.domain.models import MissionState, StationContext
+from massacre_tracker.domain.models import MissionKind, MissionState, StationContext
 from massacre_tracker.engine import TrackerEngine
 from massacre_tracker.journal.events import EventEnvelope
 from tests.builders import BASE_TIME, at
-from tests.helpers import envelope, mission_payload
+from tests.helpers import envelope, mining_payload, mission_payload
 
 SOL = StationContext(system="Sol", system_address=1, station="Galileo")
 LHS = StationContext(system="LHS 20", system_address=2, station="Fisher")
@@ -392,3 +392,72 @@ def test_stats_and_warnings():
     stats = engine.stats()
     assert stats.malformed_lines == 3
     assert stats.warnings == ("problem",)
+
+
+def test_cargo_depot_routes_to_mining_mission():
+    engine = TrackerEngine()
+    path = Path("Journal.2026-10-19T120000.01.log")
+    events = base_events() + [
+        envelope(
+            "MissionAccepted",
+            mining_payload(7, count=100),
+            path=path,
+            line_number=3,
+            station=SOL,
+        ),
+        envelope(
+            "CargoDepot",
+            {
+                "MissionID": 7,
+                "UpdateType": "Deliver",
+                "CargoType": "Bertrandite",
+                "ItemsDelivered": 40,
+                "TotalItemsToDeliver": 100,
+            },
+            path=path,
+            line_number=4,
+            station=SOL,
+            timestamp=at(1),
+        ),
+    ]
+    engine.apply_batch(events)
+    view = engine.commander_view("F100")
+    assert view is not None
+    assert view.last_mission_kind is MissionKind.MINING
+    assert len(view.missions) == 1
+    assert view.missions[0].progress_amount == 40
+    assert view.missions[0].state is MissionState.ACTIVE
+
+
+def test_last_mission_kind_follows_latest_mission_event():
+    engine = TrackerEngine()
+    path = Path("Journal.2026-10-19T120000.01.log")
+    events = base_events() + [
+        envelope(
+            "MissionAccepted",
+            mission_payload(1),
+            path=path,
+            line_number=3,
+            station=SOL,
+        ),
+        envelope(
+            "MissionAccepted",
+            mining_payload(2),
+            path=path,
+            line_number=4,
+            station=SOL,
+            timestamp=at(1),
+        ),
+        envelope(
+            "MissionAccepted",
+            mission_payload(3),
+            path=path,
+            line_number=5,
+            station=SOL,
+            timestamp=at(2),
+        ),
+    ]
+    engine.apply_batch(events)
+    view = engine.commander_view("F100")
+    assert view is not None
+    assert view.last_mission_kind is MissionKind.MASSACRE

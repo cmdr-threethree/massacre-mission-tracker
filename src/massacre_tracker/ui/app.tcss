@@ -43,12 +43,17 @@ Header {
 }
 
 #commander-select {
-    width: 26;
+    width: 24;
+    margin: 0 1 0 0;
+}
+
+#mode-select {
+    width: 11;
     margin: 0 1 0 0;
 }
 
 #view-select {
-    width: 17;
+    width: 14;
     margin: 0 1 0 0;
 }
 
@@ -83,6 +88,7 @@ TabPane {
 
 #stacks-table,
 #targets-table,
+#commodities-table,
 #bounties-table,
 #sessions-table {
     height: 1fr;

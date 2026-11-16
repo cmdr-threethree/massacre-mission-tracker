@@ -7,8 +7,8 @@ from massacre_tracker.domain.eligibility import (
     is_eligible_mission,
     is_smuggler_target,
 )
-from massacre_tracker.domain.models import StationContext
-from tests.builders import BASE_TIME, iso, mission_accepted
+from massacre_tracker.domain.models import MissionKind, StationContext
+from tests.builders import BASE_TIME, iso, mining_mission_accepted, mission_accepted
 
 STATION = StationContext(system="Sol", system_address=1, station="Galileo")
 
@@ -110,3 +110,38 @@ def test_localised_name_reward_and_wing_are_not_filters():
 
 def test_iso_helper_round_trip():
     assert iso(BASE_TIME).startswith("2026-10-19T12:00:00")
+
+
+def mining_payload(**overrides):
+    data = json.loads(mining_mission_accepted(1))
+    data.update(overrides)
+    return data
+
+
+def test_mining_mission_is_eligible_and_built():
+    data = mining_payload()
+    assert is_eligible_mission(data, STATION, True)
+    mission = build_mission(data, BASE_TIME, STATION, True)
+    assert mission is not None
+    assert mission.kind is MissionKind.MINING
+    assert mission.commodity == "Bertrandite"
+    assert mission.required_amount == 100
+    assert mission.destination_station == "Destination Station"
+    assert mission.target_faction == ""
+
+
+def test_mining_mission_requires_station_live_commodity_and_count():
+    data = mining_payload()
+    assert not is_eligible_mission(data, StationContext(), True)
+    assert not is_eligible_mission(data, STATION, False)
+    assert not is_eligible_mission(mining_payload(Count=0), STATION, True)
+    no_commodity = data.copy()
+    del no_commodity["Commodity"]
+    del no_commodity["Commodity_Localised"]
+    assert not is_eligible_mission(no_commodity, STATION, True)
+
+
+def test_mining_name_prefix_is_required():
+    assert not is_eligible_mission(
+        mining_payload(Name="Mission_Delivery"), STATION, True
+    )

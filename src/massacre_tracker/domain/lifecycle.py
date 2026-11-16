@@ -11,6 +11,7 @@ from .models import (
     CommanderTracker,
     IgnoredMission,
     Mission,
+    MissionKind,
     MissionState,
     StationContext,
 )
@@ -32,6 +33,7 @@ def apply_mission_accepted(
     if mission_id >= 0:
         existing = tracker.get_mission(mission_id)
         if existing is not None:
+            tracker.last_mission_kind = existing.kind
             return None
 
     mission = build_mission(data, timestamp, station, live)
@@ -39,6 +41,7 @@ def apply_mission_accepted(
         return None
     if not tracker.add_mission(mission):
         return None
+    tracker.last_mission_kind = mission.kind
     return mission
 
 
@@ -79,8 +82,37 @@ def apply_mission_redirected(tracker: CommanderTracker, data: dict[str, Any]) ->
     mission = _find(tracker, data)
     if mission is None:
         return False
+    tracker.last_mission_kind = mission.kind
+    if mission.kind == MissionKind.MINING:
+        new_system = as_text(data.get("NewDestinationSystem"))
+        new_station = as_text(data.get("NewDestinationStation"))
+        if new_system:
+            mission.destination_system = new_system
+        if new_station:
+            mission.destination_station = new_station
+        return True
     mission.progress_kills = mission.contract_kills
     mission.state = MissionState.REDIRECTED
+    return True
+
+
+def apply_cargo_depot(tracker: CommanderTracker, data: dict[str, Any]) -> bool:
+    """Apply a wing mining mission delivery update."""
+
+    mission = _find(tracker, data)
+    if mission is None or mission.kind != MissionKind.MINING:
+        return False
+
+    update_type = (as_text(data.get("UpdateType")) or "").casefold()
+    if update_type and update_type != "deliver":
+        return False
+
+    delivered = as_int(data.get("ItemsDelivered"), -1)
+    if delivered < 0:
+        delivered = as_int(data.get("Count"), 0)
+    mission.set_progress(max(mission.progress_kills, delivered))
+    mission.normalise_state()
+    tracker.last_mission_kind = MissionKind.MINING
     return True
 
 
@@ -89,6 +121,7 @@ def apply_mission_completed(tracker: CommanderTracker, data: dict[str, Any]) -> 
     mission = _find(tracker, data)
     if mission is None:
         return False
+    tracker.last_mission_kind = mission.kind
     mission.state = MissionState.COMPLETED
     mission.reward = as_int(data.get("Reward"), 0)
     return True
@@ -99,6 +132,7 @@ def apply_mission_abandoned(tracker: CommanderTracker, data: dict[str, Any]) -> 
     mission = _find(tracker, data)
     if mission is None:
         return False
+    tracker.last_mission_kind = mission.kind
     mission.state = MissionState.ABANDONED
     mission.reward = 0
     return True
@@ -109,6 +143,7 @@ def apply_mission_failed(tracker: CommanderTracker, data: dict[str, Any]) -> boo
     mission = _find(tracker, data)
     if mission is None:
         return False
+    tracker.last_mission_kind = mission.kind
     mission.state = MissionState.FAILED
     mission.reward = 0
     return True
@@ -168,6 +203,7 @@ def set_manual_state(
     if mission is None:
         return False
     mission.state = state
+    tracker.last_mission_kind = mission.kind
     if state in _TERMINAL_REWARD_ZERO:
         mission.reward = 0
     return True

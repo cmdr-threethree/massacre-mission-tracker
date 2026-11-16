@@ -9,14 +9,16 @@ from massacre_tracker.domain.lifecycle import (
 )
 from massacre_tracker.domain.models import (
     CommanderTracker,
+    MissionKind,
     MissionState,
     StationContext,
 )
 from massacre_tracker.domain.summaries import (
+    build_mining_summaries,
     build_stack_summaries,
     build_target_summaries,
 )
-from tests.builders import BASE_TIME, at, mission_accepted
+from tests.builders import BASE_TIME, at, mining_mission_accepted, mission_accepted
 
 STATION = StationContext(system="Sol", system_address=1, station="Galileo")
 
@@ -144,3 +146,68 @@ def test_unknown_expiry_is_preserved():
     assert m.expires_at is None
     assert isinstance(BASE_TIME, datetime)
     assert BASE_TIME.tzinfo == timezone.utc
+
+
+def add_mining(
+    tracker: CommanderTracker,
+    mission_id: int,
+    *,
+    issuer: str = "Mining Issuer",
+    commodity: str = "Bertrandite",
+    count: int = 100,
+    reward: int = 1000,
+    wing: bool = True,
+    accepted_at: int = 0,
+):
+    data = json.loads(
+        mining_mission_accepted(
+            mission_id,
+            faction=issuer,
+            commodity=commodity,
+            count=count,
+            reward=reward,
+            wing=wing,
+        )
+    )
+    mission = apply_mission_accepted(
+        tracker, data, at(accepted_at), STATION, True
+    )
+    assert mission is not None
+    return mission
+
+
+def test_mining_summary_groups_by_commodity_and_totals_delivery():
+    t = CommanderTracker(key="F", fid="F")
+    first = add_mining(t, 1, commodity="Bertrandite", count=100, reward=1000)
+    add_mining(t, 2, commodity="bertrandite", count=50, reward=500)
+    add_mining(t, 3, commodity="Gallite", count=80, reward=800, wing=False)
+    first.progress_kills = 100
+    first.state = MissionState.REDIRECTED
+
+    summaries = {s.commodity: s for s in build_mining_summaries(t)}
+    assert set(summaries) == {"Bertrandite", "Gallite"}
+    bertrandite = summaries["Bertrandite"]
+    assert bertrandite.mission_count == 2
+    assert bertrandite.ready_count == 1
+    assert bertrandite.required_units == 150
+    assert bertrandite.delivered_units == 100
+    assert bertrandite.remaining_units == 50
+    assert bertrandite.total_reward == 1500
+    assert bertrandite.shareable_reward == 1500
+    assert summaries["Gallite"].shareable_reward == 0
+
+
+def test_mining_summaries_exclude_terminal_missions():
+    t = CommanderTracker(key="F", fid="F")
+    mission = add_mining(t, 1)
+    mission.state = MissionState.COMPLETED
+    assert build_mining_summaries(t) == []
+
+
+def test_massacre_summaries_ignore_mining_missions():
+    t = CommanderTracker(key="F", fid="F")
+    add(t, 1, issuer="A", kills=10)
+    add_mining(t, 2, commodity="Indite", count=100)
+    assert len(build_stack_summaries(t)) == 1
+    assert len(build_target_summaries(t)) == 1
+    assert t.missions[1].kind is MissionKind.MASSACRE

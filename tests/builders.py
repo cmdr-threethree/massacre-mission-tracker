@@ -68,6 +68,62 @@ def bounty(
     )
 
 
+def mining_mission_accepted(
+    mission_id: int,
+    *,
+    timestamp: datetime | str | None = None,
+    faction: str = "Issuer A",
+    commodity: str = "Bertrandite",
+    count: int = 100,
+    reward: int = 5000,
+    wing: bool = True,
+    destination_system: str = "Destination",
+    destination_station: str = "Destination Station",
+    localised_name: str | None = None,
+    name: str = "Mission_Mining_Expansion",
+    expiry: datetime | str | None = None,
+) -> str:
+    fields: dict[str, Any] = {
+        "MissionID": mission_id,
+        "Name": name,
+        "Faction": faction,
+        "LocalisedName": localised_name
+        or f"Mining Expansion Support needs {count} Units of {commodity}",
+        "Commodity": f"${commodity}_Name;",
+        "Commodity_Localised": commodity,
+        "Count": count,
+        "DestinationSystem": destination_system,
+        "DestinationStation": destination_station,
+        "Reward": reward,
+        "Wing": wing,
+    }
+    if expiry is not None:
+        fields["Expiry"] = iso(expiry) if isinstance(expiry, datetime) else expiry
+    return event("MissionAccepted", timestamp, **fields)
+
+
+def cargo_depot(
+    mission_id: int,
+    *,
+    timestamp: datetime | str | None = None,
+    commodity: str = "Bertrandite",
+    delivered: int = 100,
+    total: int = 100,
+    count: int | None = None,
+    update_type: str = "Deliver",
+) -> str:
+    return event(
+        "CargoDepot",
+        timestamp,
+        MissionID=mission_id,
+        UpdateType=update_type,
+        CargoType=commodity,
+        Count=delivered if count is None else count,
+        ItemsDelivered=delivered,
+        TotalItemsToDeliver=total,
+    )
+
+
 def write_journal(
     path: Path,
     lines: list[str],

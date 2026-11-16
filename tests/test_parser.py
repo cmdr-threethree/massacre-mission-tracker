@@ -89,3 +89,13 @@ def test_fileheader_parses():
     result = parse_journal_line(fileheader(gameversion="4.0.1.0").encode())
     assert result.relevant
     assert result.event == "Fileheader"
+
+
+def test_cargo_depot_is_relevant():
+    from tests.builders import cargo_depot
+
+    result = parse_journal_line(cargo_depot(7, delivered=40, total=100).encode())
+    assert result.relevant
+    assert result.event == "CargoDepot"
+    assert result.data is not None
+    assert result.data["MissionID"] == 7

@@ -9,11 +9,11 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
 HELP_TEXT = """\
-MASSACRE MISSION TRACKER — HELP
+MASSACRE & MINING MISSION TRACKER — HELP
 
 Mission actions (selected row)
   + / -        Increment or decrement the selected mission
-  ] / [        Increment or decrement one mission in every stack
+  ] / [        Increment or decrement one mission in every massacre stack
   c            Mark selected mission COMPLETED
   a            Mark selected mission ABANDONED
   f            Mark selected mission FAILED
@@ -25,6 +25,7 @@ Mission actions (selected row)
 
 Navigation
   ctrl+n       Switch to the next commander
+  t            Switch between Massacre and Mining modes
   v            Switch between Active and Completed views
   s            Cycle sort key
   shift+s      Toggle sort direction
@@ -33,7 +34,10 @@ Navigation
   q            Quit
 
 The commander from the newest journal is selected automatically. Manual
-commander selection takes precedence until another new journal appears.
+commander selection takes precedence until another new journal appears. The
+Massacre/Mining mode is autodetected from the selected commander's latest
+mission activity; manual mode selection takes precedence until the commander
+changes or another new journal appears.
 
 Views and colour legend
   Active view:    ACTIVE and REDIRECTED missions
@@ -41,6 +45,11 @@ Views and colour legend
   Green row:      ready to turn in at a station matching the source station
   State column:   ACTIVE=green, REDIRECTED=bright green,
                   COMPLETED=cyan, ABANDONED=yellow, FAILED=red
+
+Mining missions
+  Mining delivery progress comes from CargoDepot events. A mission becomes
+  REDIRECTED when ItemsDelivered reaches the required commodity count. The
+  + and - keys adjust delivered tonnage by one.
 
 Warnings
   Missions that target smugglers are not tracked as pirate massacres. When
@@ -142,6 +151,7 @@ class CopyMenuScreen(ModalScreen[str | None]):
                 yield Button("Copy source system", id="source_system")
                 yield Button("Copy source station", id="source_station")
                 yield Button("Copy destination system", id="destination_system")
+                yield Button("Copy destination station", id="destination_station")
                 yield Button("Cancel", id="cancel", variant="default")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

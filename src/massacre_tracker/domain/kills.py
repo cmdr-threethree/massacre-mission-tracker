@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
-from .models import Bounty, CommanderTracker, Mission, MissionState
+from .models import Bounty, CommanderTracker, Mission, MissionKind
 from .values import as_int, as_text
 
 StackKey = tuple[str, str]
@@ -125,10 +125,7 @@ def _increment(mission: Mission) -> None:
 
 
 def _normalise_state(mission: Mission) -> None:
-    if mission.progress_kills >= mission.contract_kills:
-        mission.state = MissionState.REDIRECTED
-    elif mission.state == MissionState.REDIRECTED:
-        mission.state = MissionState.ACTIVE
+    mission.normalise_state()
 
 
 def _non_terminal_groups(
@@ -136,7 +133,7 @@ def _non_terminal_groups(
 ) -> dict[StackKey, list[Mission]]:
     groups: dict[StackKey, list[Mission]] = defaultdict(list)
     for mission in tracker.missions.values():
-        if mission.is_terminal:
+        if mission.is_terminal or mission.kind != MissionKind.MASSACRE:
             continue
         key = (
             mission.issuing_faction.casefold(),

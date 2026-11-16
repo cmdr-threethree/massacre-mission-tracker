@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
-from .models import CommanderTracker, Mission, MissionState
+from .models import CommanderTracker, Mission, MissionKind, MissionState
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,10 +39,25 @@ class TargetSummary:
     average_per_mission: int
 
 
+@dataclass(frozen=True, slots=True)
+class MiningCommoditySummary:
+    commodity: str
+    mission_count: int
+    ready_count: int
+    required_units: int
+    delivered_units: int
+    remaining_units: int
+    total_reward: int
+    shareable_reward: int
+    earliest_expiry: datetime | None
+
+
 def build_stack_summaries(tracker: CommanderTracker) -> list[StackSummary]:
     groups: dict[tuple[str, str], list[Mission]] = defaultdict(list)
     for mission in tracker.missions.values():
         if mission.state != MissionState.ACTIVE:
+            continue
+        if mission.kind != MissionKind.MASSACRE:
             continue
         key = (
             mission.issuing_faction.casefold(),
@@ -87,7 +103,7 @@ def build_target_summaries(tracker: CommanderTracker) -> list[TargetSummary]:
     included = [
         mission
         for mission in tracker.missions.values()
-        if mission.is_summary_member
+        if mission.is_summary_member and mission.kind == MissionKind.MASSACRE
     ]
     by_target: dict[str, list[Mission]] = defaultdict(list)
     for mission in included:
@@ -162,6 +178,62 @@ def build_target_summaries(tracker: CommanderTracker) -> list[TargetSummary]:
                     total_reward, max_stack_contract
                 ),
                 average_per_mission=round_ratio(total_reward, mission_count),
+            )
+        )
+    return summaries
+
+
+def build_mining_summaries(
+    tracker: CommanderTracker,
+) -> list[MiningCommoditySummary]:
+    included = [
+        mission
+        for mission in tracker.missions.values()
+        if mission.is_summary_member and mission.kind == MissionKind.MINING
+    ]
+    by_commodity: dict[str, list[Mission]] = defaultdict(list)
+    for mission in included:
+        by_commodity[(mission.commodity or "Unknown").casefold()].append(mission)
+
+    summaries: list[MiningCommoditySummary] = []
+    for commodity_key in sorted(by_commodity):
+        missions = by_commodity[commodity_key]
+        commodity = next(
+            (
+                mission.commodity
+                for mission in missions
+                if mission.commodity
+            ),
+            "Unknown",
+        )
+        expiries = [
+            mission.expires_at
+            for mission in missions
+            if mission.expires_at is not None
+        ]
+        summaries.append(
+            MiningCommoditySummary(
+                commodity=commodity,
+                mission_count=len(missions),
+                ready_count=sum(
+                    1
+                    for mission in missions
+                    if mission.state == MissionState.REDIRECTED
+                ),
+                required_units=sum(
+                    mission.required_amount for mission in missions
+                ),
+                delivered_units=sum(
+                    mission.progress_amount for mission in missions
+                ),
+                remaining_units=sum(
+                    mission.remaining_amount for mission in missions
+                ),
+                total_reward=sum(mission.reward for mission in missions),
+                shareable_reward=sum(
+                    mission.reward for mission in missions if mission.wing
+                ),
+                earliest_expiry=min(expiries) if expiries else None,
             )
         )
     return summaries

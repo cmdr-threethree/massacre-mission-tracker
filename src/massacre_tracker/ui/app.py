@@ -24,7 +24,7 @@ from textual.widgets import (
 )
 
 from ..config import Config
-from ..domain.models import Bounty, Mission, MissionState
+from ..domain.models import Bounty, Mission, MissionKind, MissionState
 from ..engine import CommanderView, SessionInfo, TrackerEngine
 from ..journal.discovery import JournalDirectoryError
 from ..journal.scanner import (
@@ -53,12 +53,24 @@ from .screens import (
     MissingDirectoryScreen,
 )
 
-MISSION_COLUMNS = (
+MASSACRE_MISSION_COLUMNS = (
     "SYSTEM",
     "STATION",
     "ISSUING FACTION",
     "TARGET FACTION",
     "KILLS",
+    "REWARD",
+    "EXPIRES",
+    "WING",
+    "STATE",
+)
+MINING_MISSION_COLUMNS = (
+    "SYSTEM",
+    "STATION",
+    "DESTINATION",
+    "ISSUING FACTION",
+    "COMMODITY",
+    "DELIVERED",
     "REWARD",
     "EXPIRES",
     "WING",
@@ -88,6 +100,17 @@ TARGET_COLUMNS = (
     "AVG / UNIQUE KILL",
     "AVG / MISSION",
 )
+COMMODITY_COLUMNS = (
+    "COMMODITY",
+    "MISSIONS",
+    "REQUIRED",
+    "DELIVERED",
+    "REMAINING",
+    "REWARD",
+    "SHAREABLE",
+    "READY",
+    "EARLIEST EXPIRY",
+)
 BOUNTY_COLUMNS = ("TARGET SHIP", "VICTIM FACTION", "REWARD", "SINCE PREVIOUS")
 SESSION_COLUMNS = (
     "JOURNAL FILE",
@@ -98,7 +121,7 @@ SESSION_COLUMNS = (
     "STATE",
 )
 
-SORT_FIELDS: tuple[tuple[str, str], ...] = (
+MASSACRE_SORT_FIELDS: tuple[tuple[str, str], ...] = (
     ("default", "Default"),
     ("system", "System"),
     ("station", "Station"),
@@ -109,8 +132,20 @@ SORT_FIELDS: tuple[tuple[str, str], ...] = (
     ("expiry", "Expiry"),
     ("wing", "Wing"),
 )
-SORT_LABELS = dict(SORT_FIELDS)
-
+MINING_SORT_FIELDS: tuple[tuple[str, str], ...] = (
+    ("default", "Default"),
+    ("system", "System"),
+    ("station", "Station"),
+    ("issuer", "Issuing faction"),
+    ("commodity", "Commodity"),
+    ("progress", "Delivered"),
+    ("reward", "Reward"),
+    ("expiry", "Expiry"),
+    ("wing", "Wing"),
+)
+MODE_MASSACRE = "massacre"
+MODE_MINING = "mining"
+MODE_OPTIONS = (("Massacre", MODE_MASSACRE), ("Mining", MODE_MINING))
 VIEW_ACTIVE = "active"
 VIEW_COMPLETED = "completed"
 
@@ -149,7 +184,7 @@ class TailerErrorMessage(Message):
 
 class TrackerApp(App[None]):
     CSS_PATH = "app.tcss"
-    TITLE = "Massacre Mission Tracker"
+    TITLE = "Massacre & Mining Mission Tracker"
     SUB_TITLE = "Live journal tracking"
 
     BINDINGS = [
@@ -167,6 +202,7 @@ class TrackerApp(App[None]):
         Binding("ctrl+y", "show_clipboard", "Clipboard", show=False),
         Binding("ctrl+x", "clear_completed", "Clear done", show=False),
         Binding("ctrl+n", "next_commander", "Commander", show=True),
+        Binding("t", "cycle_mode", "Mode", show=True),
         Binding("v", "cycle_view", "View", show=True),
         Binding("s", "cycle_sort", "Sort", show=True),
         Binding("shift+s", "toggle_sort_direction", "Direction", show=False),
@@ -194,9 +230,13 @@ class TrackerApp(App[None]):
         self.current_key: str | None = None
         self.selected_mission_id: int | None = None
         self.visible_mission_count = 0
+        self.mission_mode = MODE_MASSACRE
         self.view_mode = VIEW_ACTIVE
         self.sort_field = "default"
         self.sort_ascending = True
+        self._mode_auto_pick_pending = True
+        self._mission_columns_mode: str | None = None
+        self._details_mode: str | None = None
 
         self.scan_report: ScanReport | None = None
         self.scan_error: str | None = None
@@ -240,6 +280,14 @@ class TrackerApp(App[None]):
                 type_to_search=False,
                 id="commander-select",
             )
+            yield Static("Mode", classes="control-label")
+            yield Select(
+                MODE_OPTIONS,
+                allow_blank=False,
+                value=MODE_MASSACRE,
+                type_to_search=False,
+                id="mode-select",
+            )
             yield Static("View", classes="control-label")
             yield Select(
                 [("Active", VIEW_ACTIVE), ("Completed", VIEW_COMPLETED)],
@@ -258,6 +306,8 @@ class TrackerApp(App[None]):
                 yield DataTable(id="targets-table", cursor_type="row")
             with TabPane("Bounties", id="tab-bounties"):
                 yield DataTable(id="bounties-table", cursor_type="row")
+            with TabPane("Commodities", id="tab-commodities"):
+                yield DataTable(id="commodities-table", cursor_type="row")
             with TabPane("Sessions", id="tab-sessions"):
                 yield DataTable(id="sessions-table", cursor_type="row")
             with TabPane("Clipboard", id="tab-clipboard"):
@@ -398,13 +448,39 @@ class TrackerApp(App[None]):
     # ------------------------------------------------------------------
 
     def _init_tables(self) -> None:
-        mission_table = self.query_one("#missions", DataTable)
-        mission_table.add_columns(*MISSION_COLUMNS[:-1])
-        mission_table.add_column(MISSION_COLUMNS[-1], width=16)
+        self._ensure_mission_columns()
         self.query_one("#stacks-table", DataTable).add_columns(*STACK_COLUMNS)
         self.query_one("#targets-table", DataTable).add_columns(*TARGET_COLUMNS)
+        self.query_one("#commodities-table", DataTable).add_columns(
+            *COMMODITY_COLUMNS
+        )
         self.query_one("#bounties-table", DataTable).add_columns(*BOUNTY_COLUMNS)
         self.query_one("#sessions-table", DataTable).add_columns(*SESSION_COLUMNS)
+
+    def _mission_columns(self) -> tuple[str, ...]:
+        if self.mission_mode == MODE_MINING:
+            return MINING_MISSION_COLUMNS
+        return MASSACRE_MISSION_COLUMNS
+
+    def _ensure_mission_columns(self) -> None:
+        if self._mission_columns_mode == self.mission_mode:
+            return
+        table = self.query_one("#missions", DataTable)
+        columns = self._mission_columns()
+        table.clear(columns=True)
+        table.add_columns(*columns[:-1])
+        table.add_column(columns[-1], width=16)
+        self._mission_columns_mode = self.mission_mode
+        self._mission_table_context = None
+        self._mission_row_cache.clear()
+
+    def _sort_fields(self) -> tuple[tuple[str, str], ...]:
+        if self.mission_mode == MODE_MINING:
+            return MINING_SORT_FIELDS
+        return MASSACRE_SORT_FIELDS
+
+    def _sort_labels(self) -> dict[str, str]:
+        return dict(self._sort_fields())
 
     def _refresh_status_only(self) -> None:
         self._idle_refresh_ticks += 1
@@ -423,6 +499,7 @@ class TrackerApp(App[None]):
         stats = self.engine.stats()
         sessions = self.engine.all_session_infos()
         self._detect_new_sessions(sessions)
+        previous_key = self.current_key
         keys = self.engine.commander_keys()
         if keys and self.current_key not in keys:
             self.current_key = self._choose_initial_commander(keys)
@@ -437,14 +514,37 @@ class TrackerApp(App[None]):
                 self.current_key = newest_key
                 self._auto_pick_pending = False
 
-        self._sync_commander_select(keys)
-        self._sync_view_select()
+        if self.current_key != previous_key:
+            self._mode_auto_pick_pending = True
+            self.selected_mission_id = None
 
         view = (
             self.engine.commander_view(self.current_key)
             if self.current_key is not None
             else None
         )
+        if (
+            view is not None
+            and self._mode_auto_pick_pending
+            and view.last_mission_kind is not None
+        ):
+            detected = (
+                MODE_MINING
+                if view.last_mission_kind == MissionKind.MINING
+                else MODE_MASSACRE
+            )
+            if detected != self.mission_mode:
+                self.mission_mode = detected
+                self.selected_mission_id = None
+                self.sort_field = "default"
+            self._mode_auto_pick_pending = False
+
+        self._sync_commander_select(keys)
+        self._sync_mode_select()
+        self._sync_view_select()
+        self._ensure_mission_columns()
+        self._sync_details_tabs()
+
         visible_missions = self._visible_missions(view) if view is not None else []
         self.visible_mission_count = len(visible_missions)
 
@@ -455,6 +555,7 @@ class TrackerApp(App[None]):
         self._refresh_missions_table(view, visible_missions)
         self._refresh_stacks(view)
         self._refresh_targets(view)
+        self._refresh_commodities(view)
         self._refresh_bounties(view)
         self._refresh_sessions()
         self._refresh_clipboard()
@@ -467,6 +568,8 @@ class TrackerApp(App[None]):
             return
         new_paths = paths - self._known_session_paths
         self._known_session_paths = paths
+        if new_paths:
+            self._mode_auto_pick_pending = True
         if new_paths and self.config.commander_filter is None:
             self._auto_pick_pending = True
 
@@ -530,6 +633,15 @@ class TrackerApp(App[None]):
                 self._updating_selectors = False
         select.disabled = not keys
 
+    def _sync_mode_select(self) -> None:
+        select = self.query_one("#mode-select", Select)
+        if select.value != self.mission_mode:
+            self._updating_selectors = True
+            try:
+                select.value = self.mission_mode
+            finally:
+                self._updating_selectors = False
+
     def _sync_view_select(self) -> None:
         select = self.query_one("#view-select", Select)
         if select.value != self.view_mode:
@@ -567,7 +679,11 @@ class TrackerApp(App[None]):
         self.query_one("#status-line", Static).update(status)
 
         warning_parts: list[str] = []
-        smuggler_warning = self._smuggler_warning(view)
+        smuggler_warning = (
+            self._smuggler_warning(view)
+            if self.mission_mode == MODE_MASSACRE
+            else None
+        )
         if smuggler_warning:
             warning_parts.append(smuggler_warning)
         if self.scan_error:
@@ -657,9 +773,12 @@ class TrackerApp(App[None]):
         )
 
     def _update_sort_label(self) -> None:
+        labels = self._sort_labels()
+        if self.sort_field not in labels:
+            self.sort_field = "default"
         arrow = "↑" if self.sort_ascending else "↓"
         self.query_one("#sort-label", Static).update(
-            f"Sort: {SORT_LABELS[self.sort_field]} {arrow}"
+            f"Sort: {labels[self.sort_field]} {arrow}"
         )
 
     # ------------------------------------------------------------------
@@ -667,15 +786,23 @@ class TrackerApp(App[None]):
     # ------------------------------------------------------------------
 
     def _visible_missions(self, view: CommanderView) -> list[Mission]:
+        wanted_kind = (
+            MissionKind.MINING
+            if self.mission_mode == MODE_MINING
+            else MissionKind.MASSACRE
+        )
         if self.view_mode == VIEW_ACTIVE:
             missions = [
                 mission
                 for mission in view.missions
-                if mission.state in (MissionState.ACTIVE, MissionState.REDIRECTED)
+                if mission.kind == wanted_kind
+                and mission.state in (MissionState.ACTIVE, MissionState.REDIRECTED)
             ]
         else:
             missions = [
-                mission for mission in view.missions if mission.is_terminal
+                mission
+                for mission in view.missions
+                if mission.kind == wanted_kind and mission.is_terminal
             ]
         return self._sort_missions(missions)
 
@@ -701,6 +828,7 @@ class TrackerApp(App[None]):
 
         context: tuple[object, ...] = (
             view.key,
+            self.mission_mode,
             self.view_mode,
             self.sort_field,
             self.sort_ascending,
@@ -759,12 +887,13 @@ class TrackerApp(App[None]):
                 self._refresh_missions_table(view, missions)
                 return
             cells = self._mission_cells(mission, ready)
+            column_count = len(self._mission_columns())
             if old_values[-1] != new_values[-1]:
-                changed_columns = range(9)
+                changed_columns = range(column_count)
             else:
                 changed_columns = [
                     index
-                    for index in range(9)
+                    for index in range(column_count)
                     if old_values[index] != new_values[index]
                 ]
             for column_index in changed_columns:
@@ -774,11 +903,27 @@ class TrackerApp(App[None]):
                 )
             self._mission_row_cache[mission.mission_id] = new_values
 
-    @staticmethod
     def _mission_row_values(
+        self,
         mission: Mission,
         ready: bool,
     ) -> tuple[object, ...]:
+        if self.mission_mode == MODE_MINING:
+            return (
+                mission.source_system or "—",
+                mission.source_station or "—",
+                mission.destination_station
+                or mission.destination_system
+                or "—",
+                mission.issuing_faction or "—",
+                mission.commodity or "—",
+                f"{mission.progress_amount} / {mission.required_amount}",
+                format_credits(mission.reward),
+                format_expiry(mission.expires_at),
+                "WING" if mission.wing else "—",
+                mission.state.value,
+                ready,
+            )
         return (
             mission.source_system or "—",
             mission.source_station or "—",
@@ -801,6 +946,27 @@ class TrackerApp(App[None]):
             no_wrap=True,
             overflow="ellipsis",
         )
+        if self.mission_mode == MODE_MINING:
+            return [
+                self._cell(mission.source_system or "—", row_style),
+                self._cell(mission.source_station or "—", row_style),
+                self._cell(
+                    mission.destination_station
+                    or mission.destination_system
+                    or "—",
+                    row_style,
+                ),
+                self._cell(mission.issuing_faction or "—", row_style),
+                self._cell(mission.commodity or "—", row_style),
+                self._cell(
+                    f"{mission.progress_amount} / {mission.required_amount}",
+                    row_style,
+                ),
+                self._cell(format_credits(mission.reward), row_style),
+                self._cell(format_expiry(mission.expires_at), row_style),
+                wing_text,
+                state_text,
+            ]
         return [
             self._cell(mission.source_system or "—", row_style),
             self._cell(mission.source_station or "—", row_style),
@@ -817,6 +983,15 @@ class TrackerApp(App[None]):
     def _cell(value: str, style: str = "") -> Text:
         return Text(value, style=style) if style else Text(value)
 
+    @staticmethod
+    def _mission_description(mission: Mission) -> str:
+        if mission.kind == MissionKind.MINING:
+            return (
+                f"{mission.commodity or '—'} "
+                f"({mission.progress_amount}/{mission.required_amount} t)"
+            )
+        return mission.target_faction or "—"
+
     def _sort_missions(self, missions: list[Mission]) -> list[Mission]:
         field = self.sort_field
         reverse = not self.sort_ascending
@@ -825,20 +1000,36 @@ class TrackerApp(App[None]):
             with_expiry = [m for m in missions if m.expires_at is not None]
             without_expiry = [m for m in missions if m.expires_at is None]
             if field == "default":
-                key = lambda m: (
-                    (m.source_system or "").casefold(),
-                    (m.source_station or "").casefold(),
-                    (m.issuing_faction or "").casefold(),
-                    m.expires_at,
-                    m.mission_id,
-                )
-                unknown_key = lambda m: (
-                    (m.source_system or "").casefold(),
-                    (m.source_station or "").casefold(),
-                    (m.issuing_faction or "").casefold(),
-                    m.accepted_at,
-                    m.mission_id,
-                )
+                if self.mission_mode == MODE_MINING:
+                    key = lambda m: (
+                        (m.source_system or "").casefold(),
+                        (m.source_station or "").casefold(),
+                        (m.commodity or "").casefold(),
+                        m.expires_at,
+                        m.mission_id,
+                    )
+                    unknown_key = lambda m: (
+                        (m.source_system or "").casefold(),
+                        (m.source_station or "").casefold(),
+                        (m.commodity or "").casefold(),
+                        m.accepted_at,
+                        m.mission_id,
+                    )
+                else:
+                    key = lambda m: (
+                        (m.source_system or "").casefold(),
+                        (m.source_station or "").casefold(),
+                        (m.issuing_faction or "").casefold(),
+                        m.expires_at,
+                        m.mission_id,
+                    )
+                    unknown_key = lambda m: (
+                        (m.source_system or "").casefold(),
+                        (m.source_station or "").casefold(),
+                        (m.issuing_faction or "").casefold(),
+                        m.accepted_at,
+                        m.mission_id,
+                    )
             else:
                 key = lambda m: (m.expires_at, m.mission_id)
                 unknown_key = lambda m: (m.accepted_at, m.mission_id)
@@ -851,7 +1042,9 @@ class TrackerApp(App[None]):
             "station": lambda m: ((m.source_station or "").casefold(), m.mission_id),
             "issuer": lambda m: ((m.issuing_faction or "").casefold(), m.mission_id),
             "target": lambda m: ((m.target_faction or "").casefold(), m.mission_id),
+            "commodity": lambda m: ((m.commodity or "").casefold(), m.mission_id),
             "contract": lambda m: (m.contract_kills, m.mission_id),
+            "progress": lambda m: (m.progress_amount, m.mission_id),
             "reward": lambda m: (m.reward, m.mission_id),
             "wing": lambda m: (m.wing, m.mission_id),
         }
@@ -898,6 +1091,49 @@ class TrackerApp(App[None]):
                 format_credits(summary.average_per_unique_kill),
                 format_credits(summary.average_per_mission),
             )
+
+    def _refresh_commodities(self, view: CommanderView | None) -> None:
+        table = self.query_one("#commodities-table", DataTable)
+        table.clear()
+        if view is None:
+            return
+        for summary in view.mining_summaries():
+            table.add_row(
+                summary.commodity or "—",
+                str(summary.mission_count),
+                str(summary.required_units),
+                str(summary.delivered_units),
+                str(summary.remaining_units),
+                format_credits(summary.total_reward),
+                format_credits(summary.shareable_reward),
+                str(summary.ready_count),
+                format_expiry(summary.earliest_expiry),
+            )
+
+    def _sync_details_tabs(self) -> None:
+        details = self.query_one("#details", TabbedContent)
+        mining = self.mission_mode == MODE_MINING
+        massacre_tabs = ("tab-stacks", "tab-targets", "tab-bounties")
+        for tab_id in massacre_tabs:
+            if mining:
+                details.hide_tab(tab_id)
+            else:
+                details.show_tab(tab_id)
+        if mining:
+            details.show_tab("tab-commodities")
+        else:
+            details.hide_tab("tab-commodities")
+        if self._details_mode != self.mission_mode:
+            self._details_mode = self.mission_mode
+            self.call_after_refresh(self._activate_default_details_tab)
+
+    def _activate_default_details_tab(self) -> None:
+        details = self.query_one("#details", TabbedContent)
+        details.active = (
+            "tab-commodities"
+            if self.mission_mode == MODE_MINING
+            else "tab-stacks"
+        )
 
     def _refresh_bounties(self, view: CommanderView | None) -> None:
         table = self.query_one("#bounties-table", DataTable)
@@ -990,10 +1226,16 @@ class TrackerApp(App[None]):
                 widget.add_class("hidden")
                 return
             if self.view_mode == VIEW_ACTIVE:
-                message = (
-                    "No active missions. Dock at a station and accept a pirate "
-                    "massacre mission to begin tracking."
-                )
+                if self.mission_mode == MODE_MINING:
+                    message = (
+                        "No active mining missions. Dock at a station and accept "
+                        "a mining mission to begin tracking."
+                    )
+                else:
+                    message = (
+                        "No active missions. Dock at a station and accept a pirate "
+                        "massacre mission to begin tracking."
+                    )
             else:
                 message = "No completed, abandoned, or failed missions recorded."
         widget.update(message)
@@ -1010,7 +1252,15 @@ class TrackerApp(App[None]):
             if isinstance(event.value, str) and event.value != self.current_key:
                 self._auto_pick_pending = False
                 self.current_key = event.value
+                self._mode_auto_pick_pending = True
                 self.selected_mission_id = None
+                self._refresh_ui()
+        elif event.select.id == "mode-select":
+            if isinstance(event.value, str) and event.value != self.mission_mode:
+                self.mission_mode = event.value
+                self._mode_auto_pick_pending = False
+                self.selected_mission_id = None
+                self.sort_field = "default"
                 self._refresh_ui()
         elif event.select.id == "view-select":
             if isinstance(event.value, str) and event.value != self.view_mode:
@@ -1135,7 +1385,8 @@ class TrackerApp(App[None]):
         self.push_screen(
             ConfirmScreen(
                 f"Delete mission {mission.mission_id} from memory?\n\n"
-                f"{mission.issuing_faction} → {mission.target_faction}\n\n"
+                f"{mission.issuing_faction} → "
+                f"{self._mission_description(mission)}\n\n"
                 "This does not modify the journal files.",
                 confirm_label="Delete",
             ),
@@ -1201,7 +1452,7 @@ class TrackerApp(App[None]):
         self._copy_mission_id = mission.mission_id
         label = (
             f"Mission {mission.mission_id}: {mission.issuing_faction} → "
-            f"{mission.target_faction}"
+            f"{self._mission_description(mission)}"
         )
         self.push_screen(CopyMenuScreen(label), self._copy_choice)
 
@@ -1236,6 +1487,7 @@ class TrackerApp(App[None]):
             "source_system": mission.source_system,
             "source_station": mission.source_station,
             "destination_system": mission.destination_system,
+            "destination_station": mission.destination_station,
         }
         value = values.get(choice)
         if not value:
@@ -1267,7 +1519,17 @@ class TrackerApp(App[None]):
         else:
             index = keys.index(self.current_key)
             self.current_key = keys[(index + 1) % len(keys)]
+        self._mode_auto_pick_pending = True
         self.selected_mission_id = None
+        self._refresh_ui()
+
+    def action_cycle_mode(self) -> None:
+        self.mission_mode = (
+            MODE_MINING if self.mission_mode == MODE_MASSACRE else MODE_MASSACRE
+        )
+        self._mode_auto_pick_pending = False
+        self.selected_mission_id = None
+        self.sort_field = "default"
         self._refresh_ui()
 
     def action_cycle_view(self) -> None:
@@ -1278,7 +1540,7 @@ class TrackerApp(App[None]):
         self._refresh_ui()
 
     def action_cycle_sort(self) -> None:
-        fields = [field for field, _label in SORT_FIELDS]
+        fields = [field for field, _label in self._sort_fields()]
         index = fields.index(self.sort_field)
         self.sort_field = fields[(index + 1) % len(fields)]
         self._refresh_ui()

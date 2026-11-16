@@ -15,6 +15,11 @@ class MissionState(StrEnum):
     FAILED = "FAILED"
 
 
+class MissionKind(StrEnum):
+    MASSACRE = "MASSACRE"
+    MINING = "MINING"
+
+
 TERMINAL_STATES = frozenset(
     {MissionState.COMPLETED, MissionState.ABANDONED, MissionState.FAILED}
 )
@@ -46,9 +51,28 @@ class Mission:
     accepted_at: datetime
     expires_at: datetime | None
     state: MissionState = MissionState.ACTIVE
+    kind: MissionKind = MissionKind.MASSACRE
+    commodity: str | None = None
+    destination_station: str | None = None
 
     @property
     def remaining_kills(self) -> int:
+        return max(0, self.contract_kills - self.progress_kills)
+
+    @property
+    def required_amount(self) -> int:
+        """Required kills or commodity units, depending on mission kind."""
+
+        return self.contract_kills
+
+    @property
+    def progress_amount(self) -> int:
+        """Credited kills or delivered commodity units."""
+
+        return self.progress_kills
+
+    @property
+    def remaining_amount(self) -> int:
         return max(0, self.contract_kills - self.progress_kills)
 
     @property
@@ -57,7 +81,10 @@ class Mission:
 
     @property
     def is_stack_member(self) -> bool:
-        return self.state == MissionState.ACTIVE
+        return (
+            self.state == MissionState.ACTIVE
+            and self.kind == MissionKind.MASSACRE
+        )
 
     @property
     def is_summary_member(self) -> bool:
@@ -74,6 +101,16 @@ class Mission:
 
     def set_progress(self, value: int) -> None:
         self.progress_kills = max(0, min(int(value), self.contract_kills))
+
+    def normalise_state(self) -> None:
+        """Set ACTIVE/REDIRECTED from progress, leaving terminal states alone."""
+
+        if self.is_terminal:
+            return
+        if self.progress_kills >= self.contract_kills:
+            self.state = MissionState.REDIRECTED
+        elif self.state == MissionState.REDIRECTED:
+            self.state = MissionState.ACTIVE
 
     def is_ready_to_turn_in(self, station_names: set[str]) -> bool:
         """Ready state is derived from the current session stations."""
@@ -121,6 +158,7 @@ class CommanderTracker:
     missions: dict[int, Mission] = field(default_factory=dict)
     ignored_missions: dict[int, IgnoredMission] = field(default_factory=dict)
     bounty_feed: deque[Bounty] = field(default_factory=lambda: deque(maxlen=20))
+    last_mission_kind: MissionKind | None = None
 
     @property
     def display_name(self) -> str:
